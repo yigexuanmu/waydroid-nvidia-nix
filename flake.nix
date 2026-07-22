@@ -48,6 +48,20 @@
           default = waydroid-nvidia-full;
         });
 
+      overlays.default = final: prev: {
+        virglrenderer-nvidia = final.callPackage ./pkgs/virglrenderer-nvidia { inherit wnv-src; };
+        waydroid-nvidia = final.callPackage ./pkgs/waydroid-nvidia { inherit wnv-src; };
+        guest-nvidia = final.callPackage ./pkgs/guest-nvidia { };
+        guest-prebuilts-nvidia = final.callPackage ./pkgs/guest-prebuilts-nvidia { };
+        waydroid-nvidia-full = final.callPackage ./pkgs/waydroid-nvidia-full {
+          inherit wnv-src;
+          virglrenderer-nvidia = final.virglrenderer-nvidia;
+          waydroid-nvidia = final.waydroid-nvidia;
+          guest-nvidia = final.guest-nvidia;
+          guest-prebuilts-nvidia = final.guest-prebuilts-nvidia;
+        };
+      };
+
       nixosModules = {
         waydroid-nvidia = import ./modules/nixos/waydroid-nvidia.nix;
       };
