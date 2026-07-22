@@ -12,6 +12,7 @@
 , nftables
 , iproute2
 , dnsmasq
+, util-linux
 , makeWrapper
 }:
 
@@ -31,7 +32,7 @@ stdenv.mkDerivation {
   dontBuild = true;
 
   postFixup = ''
-    wrapProgram $out/bin/waydroid --prefix PATH : ${lib.makeBinPath [ lxc kmod ]}
+    wrapProgram $out/bin/waydroid --prefix PATH : ${lib.makeBinPath [ lxc kmod util-linux ]}
     wrapProgram $out/lib/waydroid/data/scripts/waydroid-net.sh \
       --prefix PATH : ${lib.makeBinPath [ lxc kmod iptables nftables iproute2 dnsmasq ]}
   '';
