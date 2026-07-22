@@ -52,7 +52,7 @@ in
         ExecStart = "${wnv}/lib/waydroid-nvidia/virgl_test_server --venus --multi-clients --socket-path /run/waydroid-venus/venus.sock";
         Environment = [
           "RENDER_SERVER_EXEC_PATH=${wnv}/lib/waydroid-nvidia/virgl_render_server"
-          "LD_LIBRARY_PATH=${wnv}/lib/waydroid-nvidia"
+          "LD_LIBRARY_PATH=${wnv}/lib/waydroid-nvidia:${pkgs.vulkan-loader}/lib"
         ];
         Restart = "on-failure";
         RestartSec = 1;
