@@ -1,22 +1,23 @@
 # waydroid-nvidia-nix
 
-**Waydroid 在 NVIDIA 显卡上的 GPU 硬件加速——Nix 打包。**
+**GPU 硬件加速的 Waydroid + NVIDIA 显卡**，打包为 Nix 包和 NixOS 模块。
 
-所有来源均引用上游，本仓库不 vendoring 任何代码。
+所有组件均引用上游构建，本仓库不 vendoring 任何代码。
 
-- 包：`github:Shiro836/waydroid-nvidia` 的补丁和预编译产物
-- NixOS 模块：systemd 服务、udev 规则、tmpfiles
+- Host 端（virglrenderer）和 Waydroid Python 工具从源码构建
+- Guest 端 Android 组件（Vulkan 驱动、hwcomposer、ANGLE、surfaceflinger）从 CI 发布包下载
 
 ## 前置要求
 
-- **NVIDIA 开源内核模块**（`nvidia-open`）且开启 `nvidia-drm.modeset=1`
-- NVIDIA 用户态驱动（`nvidia-utils`），建议驱动版本 ≥ 610.x
-- Wayland 会话（已在 KWin/Plasma 6、Niri 上测试）
+- **NVIDIA 开源内核模块** `nvidia-open`，开启 `nvidia-drm.modeset=1`
+- NVIDIA 用户态驱动 `nvidia-utils`，建议版本 ≥ 610.x
+- Wayland 会话
 - `binder` Linux 内核模块（Waydroid 需要）
+- `udmabuf` 内核模块（virgl Venus 需要）
 
-## 安装
+## 快速开始
 
-在 `flake.nix` 中添加：
+### 1. 添加 flake 输入
 
 ```nix
 {
@@ -27,14 +28,21 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
+}
+```
 
+### 2. 启用模块
+
+```nix
+{
   outputs = { nixpkgs, waydroid-nvidia-nix, ... }: {
     nixosConfigurations.myhost = nixpkgs.lib.nixosSystem {
+      specialArgs = { inherit inputs; };
       modules = [
-        { nixpkgs.overlays = [ waydroid-nvidia-nix.overlays.default ]; }
         waydroid-nvidia-nix.nixosModules.waydroid-nvidia
         {
           services.waydroid-nvidia.enable = true;
+          # 设置你的显示器刷新率
           services.waydroid-nvidia.refreshRate = 144;
         }
       ];
@@ -43,63 +51,216 @@
 }
 ```
 
-然后重建系统：
+选择方案：
+
+| 方式 | 说明 |
+|------|------|
+| `waydroid-nvidia-nix.nixosModules.waydroid-nvidia` | 直接引用模块，`package` 默认使用 flake 内包 |
+| `waydroid-nvidia-nix.overlays.default` | 叠加到 `nixpkgs.overlays`，然后从 `pkgs.waydroid-nvidia-full` 引用 |
+| `waydroid-nvidia-nix.packages.x86_64-linux.waydroid-nvidia-full` | 单独包，手动指定服务 `package` |
+
+推荐第一种。
+
+### 3. 部署
 
 ```sh
 sudo nixos-rebuild switch --flake .#myhost
 ```
 
-安装的组件：
+### 4. 初始化 Android 镜像
 
-| 组件 | 来源 |
+```sh
+sudo waydroid init
+```
+
+### 5. 配置 NVIDIA 加速栈
+
+```sh
+sudo waydroid-nvidia-setup --refresh 144
+# --refresh 参数指定你的显示器刷新率
+```
+
+### 6. 启动服务
+
+```sh
+sudo systemctl enable --now waydroid-container.service
+sudo -u <你的用户名> XDG_RUNTIME_DIR=/run/user/$(id -u <用户名>) \
+  systemctl --user enable --now wd-venus.service
+waydroid session start
+```
+
+或启动 session：
+
+```sh
+nohup waydroid session start &>/dev/null &
+```
+
+### 7. 验证 GPU 加速
+
+```sh
+sudo waydroid shell dumpsys SurfaceFlinger | grep GLES
+```
+
+正常输出示例：
+
+```
+GLES: Google Inc. (NVIDIA), ANGLE (NVIDIA, Vulkan 1.3.341 (NVIDIA Virtio-GPU Venus (NVIDIA GeForce RTX 4060 Ti) (0x00002788)), venus-26.0.65.35), OpenGL ES 3.2 (ANGLE 2.1.1 git hash: c1a25085dd9e)
+```
+
+确认系统启动完成：
+
+```sh
+echo "getprop sys.boot_completed" | sudo waydroid shell
+# 输出 1 表示启动完成
+```
+
+## ARM 翻译层（AMD/Intel CPU 运行 ARM 应用）
+
+x86 架构的 Waydroid 默认只运行 x86 的 APK。要运行 ARM 应用需要安装翻译层。
+
+**AMD CPU 推荐 libndk，Intel CPU 推荐 libhoudini。**
+
+```sh
+cd ~
+git clone https://github.com/casualsnek/waydroid_script
+cd waydroid_script
+python3 -m venv venv
+venv/bin/pip install -r requirements.txt
+nix-shell -p lzip --run "sudo venv/bin/python3 main.py install libndk"
+```
+
+重启容器使翻译层生效：
+
+```sh
+sudo systemctl restart waydroid-container
+```
+
+验证：
+
+```sh
+echo "getprop ro.product.cpu.abilist" | sudo waydroid shell
+# 应包含 arm64-v8a, armeabi-v7a
+```
+
+## 日常使用
+
+| 命令 | 说明 |
 |------|------|
-| `waydroid`（打过补丁的 Python 工具） | 从 `github:waydroid/waydroid` 构建 + NVIDIA 补丁 |
-| `virgl_test_server` + `virgl_render_server` | 从 `gitlab.freedesktop.org/virgl/virglrenderer` 构建 + 4 个补丁 |
-| Guest Vulkan 驱动（`libvulkan_virtio.so`） | 来自 `Shiro836/waydroid-nvidia` 的 CI 构建产物 |
-| Guest gralloc（`libgbm_mesa_wrapper.so`） | CI 构建产物 |
-| Guest 显示 HAL + ANGLE + surfaceflinger | CI 构建的预编译产物 |
+| `waydroid status` | 查看容器和会话状态 |
+| `waydroid show-full-ui` | 显示 Android 桌面窗口 |
+| `waydroid app install path/to/app.apk` | 安装 APK |
+| `waydroid app launch <package>` | 启动应用（如 `com.android.chrome`）|
+| `waydroid shell` | 进入 Android shell（配合 `echo "cmd" \| sudo waydroid shell` 单条执行）|
+| `echo "getprop <key>" \| sudo waydroid shell` | 读取 Android 属性 |
+| `sudo waydroid shell input tap x y` | 模拟触控 |
+| `sudo waydroid shell input keyevent KEYCODE_BACK` | 模拟按键 |
 
-## 安装后的步骤
+查看已安装应用：
 
-1. **下载 Android 镜像**（和普通 Waydroid 一样）：
+```sh
+echo "pm list packages" | sudo waydroid shell
+```
 
-   ```sh
-   sudo waydroid init
-   ```
+### 重启 Waydroid
 
-2. **配置 NVIDIA 加速栈**（将 guest 文件复制到 `/var/lib/waydroid`，写入属性）：
+```sh
+# 停止旧会话
+pkill -f "waydroid session"
 
-   ```sh
-   sudo waydroid-nvidia-setup --refresh 144
-   ```
+# 重启容器
+sudo systemctl restart waydroid-container
 
-3. **重新登录**（让 `/dev/udmabuf` 的 `uaccess` udev 规则生效）。
+# 重新启动会话
+nohup waydroid session start &>/dev/null &
+```
 
-4. **启动服务**：
+## 包说明
 
-   ```sh
-   sudo systemctl enable --now waydroid-container.service
-   systemctl --user enable --now wd-venus.service
-   waydroid session start
-   ```
-
-5. **验证 GPU 加速**：
-
-   ```sh
-   sudo waydroid shell dumpsys SurfaceFlinger | grep GLES
-   # 应该看到：GLES: ... ANGLE (NVIDIA, Vulkan ... Venus (NVIDIA GeForce ...))
-   ```
-
-## 包列表
-
-| `nix build .#<attr>` | 说明 |
+| `nix build .#<attr>` | 作用 |
 |----------------------|------|
-| `virglrenderer-nvidia` | Host Venus 渲染服务器（从源码构建） |
-| `waydroid-nvidia` | 打过补丁的 Waydroid Python 工具（从源码构建） |
-| `guest-nvidia` | Guest Vulkan 驱动 + gralloc 后端（预编译） |
-| `guest-prebuilts-nvidia` | Guest hwcomposer + ANGLE + surfaceflinger（预编译） |
-| `waydroid-nvidia-full` | 以上所有组件的集合 + 集成文件 |
+| `virglrenderer-nvidia` | Host 端 Venus 渲染服务器（virglrenderer + NVIDIA 补丁，从源码构建）|
+| `waydroid-nvidia` | 打过 NVIDIA 补丁的 Waydroid Python 工具（从源码构建）|
+| `guest-nvidia` | Guest 端 Vulkan 驱动 `libvulkan_virtio.so` + gralloc `libgbm_mesa_wrapper.so`（CI 预编译）|
+| `guest-prebuilts-nvidia` | Guest 端 hwcomposer + ANGLE + surfaceflinger（CI 预编译）|
+| `waydroid-nvidia-full` | 以上全部 + systemd units + udev 规则 + tmpfiles + 集成脚本 |
 | `default` | 同 `waydroid-nvidia-full` |
+
+## 架构
+
+```
+┌─────────────────────────────────────────────────┐
+│                  Host (NixOS)                    │
+│                                                  │
+│  ┌─────────────────────┐   ┌──────────────────┐ │
+│  │  waydroid session   │   │  wd-venus        │ │
+│  │  (Python)           │   │  virgl_test_server│ │
+│  └────────┬────────────┘   │  ┌──────────────┐│ │
+│           │ binder         │  │virgl_render  ││ │
+│           ▼                │  │_server       ││ │
+│  ┌─────────────────────┐   │  │  dlopen()    ││ │
+│  │  LXC container      │   │  │ libvulkan.so ││ │
+│  │  (Android 13)       │   │  └──────┬───────┘│ │
+│  │  ┌───────────────┐  │   └─────────┼─────────┘ │
+│  │  │ SurfaceFlinger│  │             │ venus.sock │
+│  │  │ hwcomposer    │──┼─────────────┘           │
+│  │  │ libvulkan     │  │  vtest protocol          │
+│  │  │ _virtio.so    │  │                         │
+│  │  └───────────────┘  │                         │
+│  └─────────────────────┘                         │
+│              │ NVIDIA GPU (Vulkan)               │
+└──────────────┼──────────────────────────────────┘
+               ▼
+      NVIDIA GeForce RTX
+```
+
+## 常见问题
+
+### 启动后 `getprop sys.boot_completed` 为空
+
+首次启动 Android 需要约 1-5 分钟。期间 `sys.boot_completed` 未设置，`waydroid app list` 会报 "Failed to get service waydroidplatform"，属正常现象。等待即可。
+
+### virgl_test_server 报错 "failed to open libvulkan"
+
+NixOS 上 `LD_LIBRARY_PATH` 不包含 vulkan-loader 路径导致。已在本模块中修复：
+
+```nix
+LD_LIBRARY_PATH = "${wnv}/lib/waydroid-nvidia:${pkgs.vulkan-loader}/lib";
+```
+
+如果遇到，确保使用最新版本。
+
+### SurfaceFlinger 没注册 AIDL 服务
+
+日志中出现：
+
+```
+init: Control message: Could not find 'aidl/SurfaceFlinger' for ctl.interface_start
+```
+
+是因为 SurfaceFlinger 初始化时 GPU 渲染栈未就绪，导致 hang 住。检查：
+
+1. `wd-venus` 服务是否在运行
+2. `virgl_test_server` 是否能加载 `libvulkan.so`
+3. 确认已运行 `sudo waydroid-nvidia-setup`
+
+### NVIDIA 驱动版本
+
+建议 ≥ 610.x。驱动版本过低可能导致 virgl Venus 扩展不支持。
+
+## 开发
+
+在本地构建：
+
+```sh
+nix build .#waydroid-nvidia-full
+```
+
+测试本模块（不部署到系统）：
+
+```nix
+# 在 /etc/nixos/flake.nix 中
+inputs.waydroid-nvidia-nix.url = "path:/path/to/waydroid-nvidia-nix";
+```
 
 ## 致谢
 
@@ -107,4 +268,4 @@ sudo nixos-rebuild switch --flake .#myhost
 
 ## 许可证
 
-MIT（打包层）。上游项目使用 MIT 许可证；补丁使用 MIT；预编译产物包含各自许可下的组件（MIT、GPL、Apache 等）。
+MIT（打包层）。上游项目引用各自许可证。
