@@ -33,3 +33,4 @@ tests/vnprobe
 .idea/
 *.swp
 .DS_Store
+nix/result

@@ -2,6 +2,7 @@
   lib
 , stdenv
 , fetchurl
+, zstd
 }:
 
 let
@@ -19,12 +20,15 @@ stdenv.mkDerivation {
 
   src = tarball;
 
+  dontUnpack = true;
   dontConfigure = true;
   dontBuild = true;
 
+  nativeBuildInputs = [ zstd ];
+
   installPhase = ''
     mkdir -p $out/lib/waydroid-nvidia/guest
-    tar --zstd -xf $src -C $out/lib/waydroid-nvidia/guest
+    tar --zstd -xf "$src" -C $out/lib/waydroid-nvidia/guest
   '';
 
   meta = {

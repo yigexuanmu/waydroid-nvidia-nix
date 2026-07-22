@@ -5,10 +5,13 @@
 , ninja
 , pkg-config
 , python3
+, python3Packages
 , libepoxy
 , libdrm
+, libgbm
 , libX11
 , expat
+, vulkan-headers
 , vulkan-loader
 , wayland
 , wnv-src
@@ -39,9 +42,9 @@ stdenv.mkDerivation {
     cp ${wnv-src}/src/virglrenderer-vtest/vtest_gpu_alloc.h vtest/
   '';
 
-  nativeBuildInputs = [ meson ninja pkg-config python3 ];
+  nativeBuildInputs = [ meson ninja pkg-config python3 python3Packages.pyyaml ];
 
-  buildInputs = [ libepoxy libdrm libX11 expat vulkan-loader wayland ];
+  buildInputs = [ libepoxy libdrm libgbm libX11 expat vulkan-headers vulkan-loader wayland ];
 
   mesonFlags = [
     "-Dvenus=true"
@@ -51,9 +54,10 @@ stdenv.mkDerivation {
   postInstall = ''
     mkdir -p $out/lib/waydroid-nvidia
     mv $out/bin/virgl_test_server $out/lib/waydroid-nvidia/
-    mv $out/bin/virgl_render_server $out/lib/waydroid-nvidia/
-    mv $out/lib/libvirglrenderer.so.1 $out/lib/waydroid-nvidia/
-    rm -rf $out/bin
+    mv $out/libexec/virgl_render_server $out/lib/waydroid-nvidia/ 2>/dev/null || \
+      mv $out/bin/virgl_render_server $out/lib/waydroid-nvidia/
+    cp -L $out/lib/libvirglrenderer.so.1 $out/lib/waydroid-nvidia/
+    rm -rf $out/bin $out/libexec
   '';
 
   meta = {

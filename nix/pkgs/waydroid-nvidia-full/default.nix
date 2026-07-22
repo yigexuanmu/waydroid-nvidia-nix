@@ -29,6 +29,7 @@ stdenv.mkDerivation {
     cp -L ${virglrenderer-nvidia}/lib/waydroid-nvidia/* $out/lib/waydroid-nvidia/
 
     # 3. guest stack (vulkan driver + gralloc)
+    mkdir -p $out/lib/waydroid-nvidia/guest
     cp -L ${guest-nvidia}/lib/waydroid-nvidia/guest/* $out/lib/waydroid-nvidia/guest/
 
     # 4. guest prebuilts (hwcomposer + ANGLE + surfaceflinger)
