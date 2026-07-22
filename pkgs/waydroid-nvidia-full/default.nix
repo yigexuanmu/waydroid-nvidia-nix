@@ -22,7 +22,8 @@ stdenv.mkDerivation {
   installPhase = ''
     # 1. patched waydroid Python tools
     mkdir -p $out
-    cp -ra ${waydroid-nvidia}/* $out/
+    cp -r ${waydroid-nvidia}/* $out/
+    chmod -R u+rwX $out
 
     # 2. host Venus renderer (private libdir)
     mkdir -p $out/lib/waydroid-nvidia
