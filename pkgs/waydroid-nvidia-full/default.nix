@@ -33,7 +33,7 @@ stdenv.mkDerivation {
     # 1. patched waydroid Python tools
     mkdir -p $out
     cp -r ${waydroid-nvidia}/* $out/
-    chmod -R u+rwX $out
+    chmod -R u+rwx $out
 
     # 2. host Venus renderer (private libdir)
     mkdir -p $out/lib/waydroid-nvidia
@@ -60,6 +60,7 @@ stdenv.mkDerivation {
       $out/lib/udev/rules.d/70-waydroid-nvidia.rules
     cp ${wnv-src}/packaging/aur/waydroid-nvidia-bin/waydroid-nvidia-setup \
       $out/bin/waydroid-nvidia-setup
+    chmod +x $out/bin/waydroid-nvidia-setup
     # Patch hardcoded /usr/lib paths to the Nix store location
     substituteInPlace $out/bin/waydroid-nvidia-setup \
       --replace-fail '/usr/lib/waydroid-nvidia' "$out/lib/waydroid-nvidia"
