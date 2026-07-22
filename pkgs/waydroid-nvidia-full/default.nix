@@ -20,11 +20,21 @@ stdenv.mkDerivation {
   dontBuild = true;
 
   installPhase = ''
-    # 1. patched waydroid Python tools
-    mkdir -p $out
+    # ensure bin dir exists early for symlinks
+    mkdir -p $out/bin
+
+    # 1. patched waydroid Python tools (installs to /usr/bin with PREFIX=/usr)
     cp -ra ${waydroid-nvidia}/* $out/
-    # waydroid installs to /usr/bin with PREFIX=/usr; symlink to $out/bin
-    [ -d $out/usr/bin ] && ln -s $out/usr/bin/* $out/bin/ 2>/dev/null; true
+    if [ -d $out/usr/bin ]; then
+      mv $out/usr/bin/* $out/bin/
+      rmdir $out/usr/bin
+      # move remaining usr/* to root for standard Nix layout
+      for d in $out/usr/*/; do
+        dname=$(basename "$d")
+        [ ! -e "$out/$dname" ] && mv "$d" "$out/$dname"
+      done
+      rmdir $out/usr 2>/dev/null || true
+    fi
 
     # 2. host Venus renderer (private libdir)
     mkdir -p $out/lib/waydroid-nvidia
@@ -41,7 +51,6 @@ stdenv.mkDerivation {
     mkdir -p $out/lib/systemd/user
     mkdir -p $out/lib/tmpfiles.d
     mkdir -p $out/lib/udev/rules.d
-    mkdir -p $out/bin
 
     cp ${wnv-src}/packaging/aur/waydroid-nvidia-bin/wd-venus.service \
       $out/lib/systemd/user/wd-venus.service
