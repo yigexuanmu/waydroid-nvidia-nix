@@ -52,6 +52,10 @@ stdenv.mkDerivation {
     mkdir -p $out/lib/tmpfiles.d
     mkdir -p $out/lib/udev/rules.d
 
+    # Patch waydroid-container.service to use Nix store path
+    substituteInPlace $out/lib/systemd/system/waydroid-container.service \
+      --replace-fail '/usr/bin/waydroid' "$out/bin/waydroid"
+
     cp ${wnv-src}/packaging/aur/waydroid-nvidia-bin/wd-venus.service \
       $out/lib/systemd/user/wd-venus.service
     cp ${wnv-src}/packaging/aur/waydroid-nvidia-bin/waydroid-venus.tmpfiles \
