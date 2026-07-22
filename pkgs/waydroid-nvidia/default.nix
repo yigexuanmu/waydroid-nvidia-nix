@@ -25,6 +25,7 @@ let
     pygobject3
     dbus-python
     lxc
+    gbinder-python
   ]);
 in
 stdenv.mkDerivation {
