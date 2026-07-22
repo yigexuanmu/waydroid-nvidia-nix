@@ -44,7 +44,7 @@ stdenv.mkDerivation {
 
   installPhase = ''
     patchShebangs tools/
-    make install DESTDIR=$out USE_NFTABLES=1 PREFIX=/usr
+    make install DESTDIR=$out USE_NFTABLES=1 PREFIX=
   '';
 
   meta = {

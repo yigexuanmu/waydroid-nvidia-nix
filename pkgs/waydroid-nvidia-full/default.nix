@@ -20,21 +20,8 @@ stdenv.mkDerivation {
   dontBuild = true;
 
   installPhase = ''
-    # ensure bin dir exists early for symlinks
-    mkdir -p $out/bin
-
-    # 1. patched waydroid Python tools (installs to /usr/bin with PREFIX=/usr)
-    cp -r ${waydroid-nvidia}/* $out/
-    chmod -R u+w $out
-    if [ -d $out/usr/bin ]; then
-      mv $out/usr/bin/* $out/bin/
-      rmdir $out/usr/bin
-      for d in $out/usr/*/; do
-        dname=$(basename "$d")
-        [ ! -e "$out/$dname" ] && mv "$d" "$out/$dname"
-      done
-      rmdir $out/usr 2>/dev/null || true
-    fi
+    # 1. patched waydroid Python tools
+    cp -ra ${waydroid-nvidia}/* $out/
 
     # 2. host Venus renderer (private libdir)
     mkdir -p $out/lib/waydroid-nvidia
@@ -48,6 +35,7 @@ stdenv.mkDerivation {
     cp -L ${guest-prebuilts-nvidia}/lib/waydroid-nvidia/guest/* $out/lib/waydroid-nvidia/guest/
 
     # 5. host integration files from upstream
+    mkdir -p $out/bin
     mkdir -p $out/lib/systemd/user
     mkdir -p $out/lib/tmpfiles.d
     mkdir -p $out/lib/udev/rules.d
