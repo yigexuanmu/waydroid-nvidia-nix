@@ -7,6 +7,7 @@
 , guest-nvidia
 , guest-prebuilts-nvidia
 , lxc
+, kmod
 , makeWrapper
 }:
 
@@ -26,7 +27,7 @@ stdenv.mkDerivation {
   dontBuild = true;
 
   postFixup = ''
-    wrapProgram $out/bin/waydroid --prefix PATH : ${lib.makeBinPath [ lxc ]}
+    wrapProgram $out/bin/waydroid --prefix PATH : ${lib.makeBinPath [ lxc kmod ]}
   '';
 
   installPhase = ''
