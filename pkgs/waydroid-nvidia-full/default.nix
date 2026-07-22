@@ -8,6 +8,9 @@
 , guest-prebuilts-nvidia
 , lxc
 , kmod
+, iptables
+, nftables
+, iproute2
 , makeWrapper
 }:
 
@@ -28,6 +31,8 @@ stdenv.mkDerivation {
 
   postFixup = ''
     wrapProgram $out/bin/waydroid --prefix PATH : ${lib.makeBinPath [ lxc kmod ]}
+    wrapProgram $out/lib/waydroid/data/scripts/waydroid-net.sh \
+      --prefix PATH : ${lib.makeBinPath [ lxc kmod iptables nftables iproute2 ]}
   '';
 
   installPhase = ''
