@@ -31,10 +31,10 @@
   outputs = { nixpkgs, waydroid-nvidia-nix, ... }: {
     nixosConfigurations.myhost = nixpkgs.lib.nixosSystem {
       modules = [
+        { nixpkgs.overlays = [ waydroid-nvidia-nix.overlays.default ]; }
         waydroid-nvidia-nix.nixosModules.waydroid-nvidia
         {
           services.waydroid-nvidia.enable = true;
-          # 设置为你显示器的刷新率（可选，> 240 Hz 需要 patched surfaceflinger）
           services.waydroid-nvidia.refreshRate = 144;
         }
       ];
