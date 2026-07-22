@@ -24,11 +24,11 @@ stdenv.mkDerivation {
     mkdir -p $out/bin
 
     # 1. patched waydroid Python tools (installs to /usr/bin with PREFIX=/usr)
-    cp -ra ${waydroid-nvidia}/* $out/
+    cp -r ${waydroid-nvidia}/* $out/
+    chmod -R u+w $out
     if [ -d $out/usr/bin ]; then
       mv $out/usr/bin/* $out/bin/
       rmdir $out/usr/bin
-      # move remaining usr/* to root for standard Nix layout
       for d in $out/usr/*/; do
         dname=$(basename "$d")
         [ ! -e "$out/$dname" ] && mv "$d" "$out/$dname"
