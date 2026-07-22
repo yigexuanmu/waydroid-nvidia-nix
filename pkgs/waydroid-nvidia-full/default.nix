@@ -23,6 +23,8 @@ stdenv.mkDerivation {
     # 1. patched waydroid Python tools
     mkdir -p $out
     cp -ra ${waydroid-nvidia}/* $out/
+    # waydroid installs to /usr/bin with PREFIX=/usr; symlink to $out/bin
+    [ -d $out/usr/bin ] && ln -s $out/usr/bin/* $out/bin/ 2>/dev/null; true
 
     # 2. host Venus renderer (private libdir)
     mkdir -p $out/lib/waydroid-nvidia
@@ -62,6 +64,7 @@ stdenv.mkDerivation {
       $out/lib/waydroid-nvidia/guest/libgbm_mesa_wrapper.so \
       $out/lib/waydroid-nvidia/guest/hwcomposer.waydroid.so \
       $out/bin/waydroid-nvidia-setup \
+      $out/bin/waydroid \
       $out/lib/systemd/user/wd-venus.service \
       $out/lib/tmpfiles.d/waydroid-venus.conf \
       $out/lib/udev/rules.d/70-waydroid-nvidia.rules
