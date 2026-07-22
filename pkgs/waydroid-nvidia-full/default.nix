@@ -6,6 +6,8 @@
 , waydroid-nvidia
 , guest-nvidia
 , guest-prebuilts-nvidia
+, lxc
+, makeWrapper
 }:
 
 let
@@ -15,9 +17,17 @@ stdenv.mkDerivation {
   pname = "waydroid-nvidia-full";
   inherit version;
 
+  nativeBuildInputs = [ makeWrapper ];
+
+  buildInputs = [ lxc ];
+
   dontUnpack = true;
   dontConfigure = true;
   dontBuild = true;
+
+  postFixup = ''
+    wrapProgram $out/bin/waydroid --prefix PATH : ${lib.makeBinPath [ lxc ]}
+  '';
 
   installPhase = ''
     # 1. patched waydroid Python tools
