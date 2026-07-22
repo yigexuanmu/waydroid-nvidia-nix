@@ -213,40 +213,6 @@ nohup waydroid session start &>/dev/null &
       NVIDIA GeForce RTX
 ```
 
-## 常见问题
-
-### 启动后 `getprop sys.boot_completed` 为空
-
-首次启动 Android 需要约 1-5 分钟。期间 `sys.boot_completed` 未设置，`waydroid app list` 会报 "Failed to get service waydroidplatform"，属正常现象。等待即可。
-
-### virgl_test_server 报错 "failed to open libvulkan"
-
-NixOS 上 `LD_LIBRARY_PATH` 不包含 vulkan-loader 路径导致。已在本模块中修复：
-
-```nix
-LD_LIBRARY_PATH = "${wnv}/lib/waydroid-nvidia:${pkgs.vulkan-loader}/lib";
-```
-
-如果遇到，确保使用最新版本。
-
-### SurfaceFlinger 没注册 AIDL 服务
-
-日志中出现：
-
-```
-init: Control message: Could not find 'aidl/SurfaceFlinger' for ctl.interface_start
-```
-
-是因为 SurfaceFlinger 初始化时 GPU 渲染栈未就绪，导致 hang 住。检查：
-
-1. `wd-venus` 服务是否在运行
-2. `virgl_test_server` 是否能加载 `libvulkan.so`
-3. 确认已运行 `sudo waydroid-nvidia-setup`
-
-### NVIDIA 驱动版本
-
-建议 ≥ 610.x。驱动版本过低可能导致 virgl Venus 扩展不支持。
-
 ## 开发
 
 在本地构建：
