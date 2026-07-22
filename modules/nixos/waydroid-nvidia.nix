@@ -25,8 +25,9 @@ in
   config = lib.mkIf cfg.enable {
     environment.systemPackages = [ wnv ];
 
-    # systemd units (waydroid-container.service, patched to use Nix paths)
+    # waydroid-container.service (patched to use Nix paths)
     systemd.packages = [ wnv ];
+    systemd.services.waydroid-container.wantedBy = [ "multi-user.target" ];
 
     # udev rule for /dev/udmabuf (uaccess for seated user)
     services.udev.packages = [ wnv ];
