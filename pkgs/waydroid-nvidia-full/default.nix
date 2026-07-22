@@ -58,6 +58,8 @@ stdenv.mkDerivation {
 
     cp ${wnv-src}/packaging/aur/waydroid-nvidia-bin/wd-venus.service \
       $out/lib/systemd/user/wd-venus.service
+    substituteInPlace $out/lib/systemd/user/wd-venus.service \
+      --replace-fail '/usr/lib/waydroid-nvidia' "$out/lib/waydroid-nvidia"
     cp ${wnv-src}/packaging/aur/waydroid-nvidia-bin/waydroid-venus.tmpfiles \
       $out/lib/tmpfiles.d/waydroid-venus.conf
     cp ${wnv-src}/packaging/aur/waydroid-nvidia-bin/waydroid-nvidia.rules \

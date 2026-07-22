@@ -25,9 +25,17 @@ in
   config = lib.mkIf cfg.enable {
     environment.systemPackages = [ wnv ];
 
-    # waydroid-container.service (patched to use Nix paths)
-    systemd.packages = [ wnv ];
-    systemd.services.waydroid-container.wantedBy = [ "multi-user.target" ];
+    # waydroid-container.service (patched to use Nix paths, system unit only)
+    systemd.services.waydroid-container = {
+      description = "Waydroid Container";
+      wantedBy = [ "multi-user.target" ];
+      serviceConfig = {
+        UMask = "0022";
+        BusName = "id.waydro.Container";
+        ExecStart = "${wnv}/bin/waydroid container start";
+        Type = "dbus";
+      };
+    };
 
     # udev rule for /dev/udmabuf (uaccess for seated user)
     services.udev.packages = [ wnv ];
