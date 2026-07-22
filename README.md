@@ -83,15 +83,6 @@ sudo waydroid-nvidia-setup --refresh 144
 ### 6. 启动服务
 
 ```sh
-sudo systemctl enable --now waydroid-container.service
-sudo -u <你的用户名> XDG_RUNTIME_DIR=/run/user/$(id -u <用户名>) \
-  systemctl --user enable --now wd-venus.service
-waydroid session start
-```
-
-或启动 session：
-
-```sh
 nohup waydroid session start &>/dev/null &
 ```
 
@@ -105,13 +96,6 @@ sudo waydroid shell dumpsys SurfaceFlinger | grep GLES
 
 ```
 GLES: Google Inc. (NVIDIA), ANGLE (NVIDIA, Vulkan 1.3.341 (NVIDIA Virtio-GPU Venus (NVIDIA GeForce RTX 4060 Ti) (0x00002788)), venus-26.0.65.35), OpenGL ES 3.2 (ANGLE 2.1.1 git hash: c1a25085dd9e)
-```
-
-确认系统启动完成：
-
-```sh
-echo "getprop sys.boot_completed" | sudo waydroid shell
-# 输出 1 表示启动完成
 ```
 
 ## ARM 翻译层（AMD/Intel CPU 运行 ARM 应用）
