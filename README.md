@@ -60,6 +60,7 @@ modules = [
   {
     services.waydroid-nvidia.enable = true;
     services.waydroid-nvidia.refreshRate = 144;
+    services.waydroid-nvidia.package = waydroid-nvidia-nix.packages.x86_64-linux.waydroid-nvidia-full;
   }
 ];
 ```
