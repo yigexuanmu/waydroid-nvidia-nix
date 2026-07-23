@@ -1,4 +1,4 @@
-[English](README.en.md)
+[English](README.en.md) — 英文版
 
 # waydroid-nvidia-nix
 
