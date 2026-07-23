@@ -1,3 +1,5 @@
+[中文](README.md) — 阅读中文版本
+
 # waydroid-nvidia-nix
 
 **GPU-accelerated Waydroid on NVIDIA**, packaged as Nix packages and a NixOS module.
