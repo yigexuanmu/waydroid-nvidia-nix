@@ -1,25 +1,23 @@
-[English](README.en.md)
-
 # waydroid-nvidia-nix
 
-**GPU 硬件加速的 Waydroid + NVIDIA 显卡**，打包为 Nix 包和 NixOS 模块。
+**GPU-accelerated Waydroid on NVIDIA**, packaged as Nix packages and a NixOS module.
 
-所有组件均引用上游构建，本仓库不 vendoring 任何代码。
+All components reference upstream sources — no vendoring.
 
-- Host 端（virglrenderer）和 Waydroid Python 工具从源码构建
-- Guest 端 Android 组件（Vulkan 驱动、hwcomposer、ANGLE、surfaceflinger）从 CI 发布包下载
+- Host (virglrenderer) and Waydroid Python tools are built from source
+- Guest Android components (Vulkan driver, hwcomposer, ANGLE, surfaceflinger) are fetched from CI release tarballs
 
-## 前置要求
+## Prerequisites
 
-- **NVIDIA 开源内核模块** `nvidia-open`，开启 `nvidia-drm.modeset=1`
-- NVIDIA 用户态驱动 `nvidia-utils`，建议版本 ≥ 610.x
-- Wayland 会话
-- `binder` Linux 内核模块（Waydroid 需要）
-- `udmabuf` 内核模块（virgl Venus 需要）
+- NVIDIA open kernel module (`nvidia-open`) with `nvidia-drm.modeset=1`
+- NVIDIA userspace driver `nvidia-utils` (≥ 610.x recommended)
+- Wayland session
+- `binder` kernel module (required by Waydroid)
+- `udmabuf` kernel module (required by virgl Venus)
 
-## 快速开始
+## Quick Start
 
-### 1. 添加 flake 输入
+### 1. Add flake input
 
 ```nix
 {
@@ -33,7 +31,7 @@
 }
 ```
 
-### 2. 启用模块
+### 2. Enable the module
 
 ```nix
 {
@@ -44,7 +42,7 @@
         waydroid-nvidia-nix.nixosModules.waydroid-nvidia
         {
           services.waydroid-nvidia.enable = true;
-          # 设置你的显示器刷新率
+          # Set your monitor refresh rate
           services.waydroid-nvidia.refreshRate = 144;
         }
       ];
@@ -53,58 +51,68 @@
 }
 ```
 
-选择方案：
-
-| 方式 | 说明 |
-|------|------|
-| `waydroid-nvidia-nix.nixosModules.waydroid-nvidia` | 直接引用模块，`package` 默认使用 flake 内包 |
-| `waydroid-nvidia-nix.overlays.default` | 叠加到 `nixpkgs.overlays`，然后从 `pkgs.waydroid-nvidia-full` 引用 |
-| `waydroid-nvidia-nix.packages.x86_64-linux.waydroid-nvidia-full` | 单独包，手动指定服务 `package` |
-
-推荐第一种。
-
-### 3. 部署
+### 3. Deploy
 
 ```sh
 sudo nixos-rebuild switch --flake .#myhost
 ```
 
-### 4. 初始化 Android 镜像
+### 4. Initialize Android images
 
 ```sh
 sudo waydroid init
 ```
 
-### 5. 配置 NVIDIA 加速栈
+### 5. Configure NVIDIA acceleration
 
 ```sh
 sudo waydroid-nvidia-setup --refresh 144
-# --refresh 参数指定你的显示器刷新率
+# --refresh specifies your display refresh rate in Hz
 ```
 
-### 6. 启动服务
+### 6. Start services
+
+```sh
+sudo systemctl enable --now waydroid-container.service
+```
+
+Start the Venus render server (as your user):
+
+```sh
+sudo -u <your-username> XDG_RUNTIME_DIR=/run/user/$(id -u <your-username>) \
+  systemctl --user enable --now wd-venus.service
+```
+
+Start the Waydroid session:
 
 ```sh
 nohup waydroid session start &>/dev/null &
 ```
 
-### 7. 验证 GPU 加速
+### 7. Verify GPU acceleration
 
 ```sh
 sudo waydroid shell dumpsys SurfaceFlinger | grep GLES
 ```
 
-正常输出示例：
+Expected output:
 
 ```
 GLES: Google Inc. (NVIDIA), ANGLE (NVIDIA, Vulkan 1.3.341 (NVIDIA Virtio-GPU Venus (NVIDIA GeForce RTX 4060 Ti) (0x00002788)), venus-26.0.65.35), OpenGL ES 3.2 (ANGLE 2.1.1 git hash: c1a25085dd9e)
 ```
 
-## ARM 翻译层（AMD/Intel CPU 运行 ARM 应用）
+Check that boot completed:
 
-x86 架构的 Waydroid 默认只运行 x86 的 APK。要运行 ARM 应用需要安装翻译层。
+```sh
+echo "getprop sys.boot_completed" | sudo waydroid shell
+# Should output 1
+```
 
-**AMD CPU 推荐 libndk，Intel CPU 推荐 libhoudini。**
+## ARM Translation (run ARM apps on x86)
+
+Waydroid on x86 only runs x86 APKs by default. Install an ARM translation layer to run ARM apps.
+
+**AMD CPU → use libndk. Intel CPU → use libhoudini.**
 
 ```sh
 cd ~
@@ -115,63 +123,58 @@ venv/bin/pip install -r requirements.txt
 nix-shell -p lzip --run "sudo venv/bin/python3 main.py install libndk"
 ```
 
-重启容器使翻译层生效：
+Restart the container:
 
 ```sh
 sudo systemctl restart waydroid-container
 ```
 
-验证：
+Verify:
 
 ```sh
 echo "getprop ro.product.cpu.abilist" | sudo waydroid shell
-# 应包含 arm64-v8a, armeabi-v7a
+# Should include arm64-v8a, armeabi-v7a
 ```
 
-## 日常使用
+## Usage
 
-| 命令 | 说明 |
-|------|------|
-| `waydroid status` | 查看容器和会话状态 |
-| `waydroid show-full-ui` | 显示 Android 桌面窗口 |
-| `waydroid app install path/to/app.apk` | 安装 APK |
-| `waydroid app launch <package>` | 启动应用（如 `com.android.chrome`）|
-| `waydroid shell` | 进入 Android shell（配合 `echo "cmd" \| sudo waydroid shell` 单条执行）|
-| `echo "getprop <key>" \| sudo waydroid shell` | 读取 Android 属性 |
-| `sudo waydroid shell input tap x y` | 模拟触控 |
-| `sudo waydroid shell input keyevent KEYCODE_BACK` | 模拟按键 |
+| Command | Description |
+|---------|-------------|
+| `waydroid status` | Check container and session status |
+| `waydroid show-full-ui` | Show Android desktop in a window |
+| `waydroid app install path/to/app.apk` | Install an APK |
+| `waydroid app launch <package>` | Launch an app (e.g. `com.android.chrome`) |
+| `waydroid shell` | Open Android shell (use `echo "cmd" \| sudo waydroid shell` for one-shot) |
+| `echo "getprop <key>" \| sudo waydroid shell` | Read Android system properties |
+| `sudo waydroid shell input tap x y` | Simulate touch input |
+| `sudo waydroid shell input keyevent KEYCODE_BACK` | Simulate key press |
 
-查看已安装应用：
+List installed packages:
 
 ```sh
 echo "pm list packages" | sudo waydroid shell
 ```
 
-### 重启 Waydroid
+### Restarting Waydroid
 
 ```sh
-# 停止旧会话
 pkill -f "waydroid session"
-
-# 重启容器
 sudo systemctl restart waydroid-container
-
-# 重新启动会话
 nohup waydroid session start &>/dev/null &
 ```
 
-## 包说明
+## Package Overview
 
-| `nix build .#<attr>` | 作用 |
-|----------------------|------|
-| `virglrenderer-nvidia` | Host 端 Venus 渲染服务器（virglrenderer + NVIDIA 补丁，从源码构建）|
-| `waydroid-nvidia` | 打过 NVIDIA 补丁的 Waydroid Python 工具（从源码构建）|
-| `guest-nvidia` | Guest 端 Vulkan 驱动 `libvulkan_virtio.so` + gralloc `libgbm_mesa_wrapper.so`（CI 预编译）|
-| `guest-prebuilts-nvidia` | Guest 端 hwcomposer + ANGLE + surfaceflinger（CI 预编译）|
-| `waydroid-nvidia-full` | 以上全部 + systemd units + udev 规则 + tmpfiles + 集成脚本 |
-| `default` | 同 `waydroid-nvidia-full` |
+| `nix build .#<attr>` | Description |
+|----------------------|-------------|
+| `virglrenderer-nvidia` | Host Venus render server (built from source with NVIDIA patches) |
+| `waydroid-nvidia` | Patched Waydroid Python tools (built from source) |
+| `guest-nvidia` | Guest Vulkan driver `libvulkan_virtio.so` + gralloc `libgbm_mesa_wrapper.so` (CI prebuilt) |
+| `guest-prebuilts-nvidia` | Guest hwcomposer + ANGLE + surfaceflinger (CI prebuilt) |
+| `waydroid-nvidia-full` | All of the above + systemd units + udev rules + tmpfiles + setup script |
+| `default` | Same as `waydroid-nvidia-full` |
 
-## 架构
+## Architecture
 
 ```
 ┌─────────────────────────────────────────────────┐
@@ -199,25 +202,25 @@ nohup waydroid session start &>/dev/null &
       NVIDIA GeForce RTX
 ```
 
-## 开发
+## Development
 
-在本地构建：
+Build locally:
 
 ```sh
 nix build .#waydroid-nvidia-full
 ```
 
-测试本模块（不部署到系统）：
+Test the module locally without deploying system-wide:
 
 ```nix
-# 在 /etc/nixos/flake.nix 中
+# In /etc/nixos/flake.nix
 inputs.waydroid-nvidia-nix.url = "path:/path/to/waydroid-nvidia-nix";
 ```
 
-## 致谢
+## Credits
 
-所有补丁和预编译产物来自 [Shiro836/waydroid-nvidia](https://github.com/Shiro836/waydroid-nvidia)。本仓库只提供 Nix 打包层。
+All patches and prebuilt components are from [Shiro836/waydroid-nvidia](https://github.com/Shiro836/waydroid-nvidia). This repository only provides the Nix packaging layer.
 
-## 许可证
+## License
 
-MIT（打包层）。上游项目引用各自许可证。
+MIT (packaging layer). Upstream projects are under their respective licenses.
