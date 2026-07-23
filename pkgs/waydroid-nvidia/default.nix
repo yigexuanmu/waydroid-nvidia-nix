@@ -13,7 +13,7 @@
 
 let
   pname = "waydroid-nvidia";
-  version = "0.1.0-rc3";
+  version = "0.1.1";
 
   # Pinned upstream commit from packaging/ci/pins.env
   waydroid-src = builtins.fetchGit {

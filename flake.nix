@@ -5,7 +5,7 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
     wnv-src = {
-      url = "github:Shiro836/waydroid-nvidia/v0.1.0-rc3";
+      url = "github:Shiro836/waydroid-nvidia/v0.1.1";
       flake = false;
     };
   };
