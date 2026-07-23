@@ -33,18 +33,33 @@ All components reference upstream sources — no vendoring.
 
 ### 2. Enable the module
 
+Waydroid-nvidia config is usually kept in a separate file, e.g. `configuration/modules/services/waydroid-nvidia.nix`:
+
+```nix
+{
+  inputs,
+  ...
+}: {
+  imports = [
+    inputs.waydroid-nvidia-nix.nixosModules.waydroid-nvidia
+  ];
+
+  services.waydroid-nvidia.enable = true;
+  services.waydroid-nvidia.refreshRate = 165; # your monitor's refresh rate
+  services.waydroid-nvidia.package = inputs.waydroid-nvidia-nix.packages.x86_64-linux.waydroid-nvidia-full;
+}
+```
+
+Then import it in your main modules list:
+
 ```nix
 {
   outputs = { nixpkgs, waydroid-nvidia-nix, ... }: {
     nixosConfigurations.myhost = nixpkgs.lib.nixosSystem {
       specialArgs = { inherit inputs; };
       modules = [
-        waydroid-nvidia-nix.nixosModules.waydroid-nvidia
-        {
-          services.waydroid-nvidia.enable = true;
-          # Set your monitor refresh rate
-          services.waydroid-nvidia.refreshRate = 144;
-        }
+        inputs.waydroid-nvidia-nix.nixosModules.waydroid-nvidia
+        ./configuration/modules/services/waydroid-nvidia.nix
       ];
     };
   };
