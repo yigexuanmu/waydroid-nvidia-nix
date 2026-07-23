@@ -52,7 +52,19 @@
 }
 ```
 
-然后在主 modules 列表中引入：
+或直接内联在 `flake.nix` 的 modules 里：
+
+```nix
+modules = [
+  waydroid-nvidia-nix.nixosModules.waydroid-nvidia
+  {
+    services.waydroid-nvidia.enable = true;
+    services.waydroid-nvidia.refreshRate = 165;
+  }
+];
+```
+
+如果用了单独文件，在主 modules 列表中引入：
 
 ```nix
 {

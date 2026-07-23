@@ -50,7 +50,19 @@ Waydroid-nvidia config is usually kept in a separate file, e.g. `configuration/m
 }
 ```
 
-Then import it in your main modules list:
+Or inline it directly in `flake.nix`:
+
+```nix
+modules = [
+  waydroid-nvidia-nix.nixosModules.waydroid-nvidia
+  {
+    services.waydroid-nvidia.enable = true;
+    services.waydroid-nvidia.refreshRate = 165;
+  }
+];
+```
+
+If using a separate file, import it in your main modules list:
 
 ```nix
 {
