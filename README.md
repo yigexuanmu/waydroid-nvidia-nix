@@ -35,18 +35,33 @@
 
 ### 2. 启用模块
 
+建议将 waydroid-nvidia 配置放在单独文件，如 `configuration/modules/services/waydroid-nvidia.nix`：
+
+```nix
+{
+  inputs,
+  ...
+}: {
+  imports = [
+    inputs.waydroid-nvidia-nix.nixosModules.waydroid-nvidia
+  ];
+
+  services.waydroid-nvidia.enable = true;
+  services.waydroid-nvidia.refreshRate = 165; # 你的显示器刷新率
+  services.waydroid-nvidia.package = inputs.waydroid-nvidia-nix.packages.x86_64-linux.waydroid-nvidia-full;
+}
+```
+
+然后在主 modules 列表中引入：
+
 ```nix
 {
   outputs = { nixpkgs, waydroid-nvidia-nix, ... }: {
     nixosConfigurations.myhost = nixpkgs.lib.nixosSystem {
       specialArgs = { inherit inputs; };
       modules = [
-        waydroid-nvidia-nix.nixosModules.waydroid-nvidia
-        {
-          services.waydroid-nvidia.enable = true;
-          # 设置你的显示器刷新率
-          services.waydroid-nvidia.refreshRate = 144;
-        }
+        inputs.waydroid-nvidia-nix.nixosModules.waydroid-nvidia
+        ./configuration/modules/services/waydroid-nvidia.nix
       ];
     };
   };
