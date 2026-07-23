@@ -12,7 +12,7 @@ All components reference upstream sources — no vendoring.
 - NVIDIA open kernel module (`nvidia-open`) with `nvidia-drm.modeset=1`
 - NVIDIA userspace driver `nvidia-utils` (≥ 610.x recommended)
 - Wayland session
-- `binder` kernel module (required by Waydroid)
+- `binder` Linux kernel module (required by Waydroid)
 - `udmabuf` kernel module (required by virgl Venus)
 
 ## Quick Start
@@ -51,6 +51,16 @@ All components reference upstream sources — no vendoring.
 }
 ```
 
+Options:
+
+| Method | Description |
+|--------|-------------|
+| `waydroid-nvidia-nix.nixosModules.waydroid-nvidia` | Reference the module directly; `package` defaults to the flake's package |
+| `waydroid-nvidia-nix.overlays.default` | Add to `nixpkgs.overlays`, then reference from `pkgs.waydroid-nvidia-full` |
+| `waydroid-nvidia-nix.packages.x86_64-linux.waydroid-nvidia-full` | Standalone package, set `package` manually in the service |
+
+The first one is recommended.
+
 ### 3. Deploy
 
 ```sh
@@ -70,20 +80,7 @@ sudo waydroid-nvidia-setup --refresh 144
 # --refresh specifies your display refresh rate in Hz
 ```
 
-### 6. Start services
-
-```sh
-sudo systemctl enable --now waydroid-container.service
-```
-
-Start the Venus render server (as your user):
-
-```sh
-sudo -u <your-username> XDG_RUNTIME_DIR=/run/user/$(id -u <your-username>) \
-  systemctl --user enable --now wd-venus.service
-```
-
-Start the Waydroid session:
+### 6. Start the session
 
 ```sh
 nohup waydroid session start &>/dev/null &
@@ -99,13 +96,6 @@ Expected output:
 
 ```
 GLES: Google Inc. (NVIDIA), ANGLE (NVIDIA, Vulkan 1.3.341 (NVIDIA Virtio-GPU Venus (NVIDIA GeForce RTX 4060 Ti) (0x00002788)), venus-26.0.65.35), OpenGL ES 3.2 (ANGLE 2.1.1 git hash: c1a25085dd9e)
-```
-
-Check that boot completed:
-
-```sh
-echo "getprop sys.boot_completed" | sudo waydroid shell
-# Should output 1
 ```
 
 ## ARM Translation (run ARM apps on x86)
@@ -144,8 +134,8 @@ echo "getprop ro.product.cpu.abilist" | sudo waydroid shell
 | `waydroid show-full-ui` | Show Android desktop in a window |
 | `waydroid app install path/to/app.apk` | Install an APK |
 | `waydroid app launch <package>` | Launch an app (e.g. `com.android.chrome`) |
-| `waydroid shell` | Open Android shell (use `echo "cmd" \| sudo waydroid shell` for one-shot) |
-| `echo "getprop <key>" \| sudo waydroid shell` | Read Android system properties |
+| `waydroid shell` | Open Android shell (use `echo "cmd" \| sudo waydroid shell` for one-shot commands) |
+| `echo "getprop <key>" \| sudo waydroid shell` | Read Android properties |
 | `sudo waydroid shell input tap x y` | Simulate touch input |
 | `sudo waydroid shell input keyevent KEYCODE_BACK` | Simulate key press |
 
@@ -158,8 +148,13 @@ echo "pm list packages" | sudo waydroid shell
 ### Restarting Waydroid
 
 ```sh
+# Stop the old session
 pkill -f "waydroid session"
+
+# Restart container
 sudo systemctl restart waydroid-container
+
+# Start a new session
 nohup waydroid session start &>/dev/null &
 ```
 
@@ -210,7 +205,7 @@ Build locally:
 nix build .#waydroid-nvidia-full
 ```
 
-Test the module locally without deploying system-wide:
+Test the module locally (without deploying system-wide):
 
 ```nix
 # In /etc/nixos/flake.nix
