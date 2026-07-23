@@ -66,11 +66,10 @@ If using a separate file, import it in your main modules list:
 
 ```nix
 {
-  outputs = { nixpkgs, waydroid-nvidia-nix, ... }: {
+  outputs = { nixpkgs, ... } @ inputs: {
     nixosConfigurations.myhost = nixpkgs.lib.nixosSystem {
       specialArgs = { inherit inputs; };
       modules = [
-        inputs.waydroid-nvidia-nix.nixosModules.waydroid-nvidia
         ./configuration/modules/services/waydroid-nvidia.nix
       ];
     };
