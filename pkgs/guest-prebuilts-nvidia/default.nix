@@ -6,12 +6,12 @@
 }:
 
 let
-  version = "0.1.1";
+  version = "0.1.2";
 
   tarball = fetchurl {
     name = "waydroid-nvidia-guest-prebuilts-v${version}.tar.zst";
     url = "https://github.com/Shiro836/waydroid-nvidia/releases/download/v${version}/waydroid-nvidia-guest-prebuilts-v${version}.tar.zst";
-    hash = "sha256-va2MlAuNQfmlbT6tHBjpBD1uR8ND2PXdtW/RCLMT3Oo=";
+    hash = "sha256-YYmfVsIDt1DUH3wUGh7iZMtoJBdIzJzaUS7UXymXy9E=";
   };
 in
 stdenv.mkDerivation {
@@ -28,7 +28,9 @@ stdenv.mkDerivation {
 
   installPhase = ''
     mkdir -p $out/lib/waydroid-nvidia/guest
-    tar --zstd -xf "$src" -C $out/lib/waydroid-nvidia/guest
+    cd "$(mktemp -d)"
+    tar --zstd -xf "$src"
+    find vendor/lib64 system/bin -type f -exec cp -L {} $out/lib/waydroid-nvidia/guest/ \;
   '';
 
   meta = {

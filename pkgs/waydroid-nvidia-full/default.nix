@@ -17,7 +17,7 @@
 }:
 
 let
-  version = "0.1.0-rc3";
+  version = "0.1.2";
 in
 stdenv.mkDerivation {
   pname = "waydroid-nvidia-full";
@@ -49,7 +49,7 @@ stdenv.mkDerivation {
 
     # 3. guest stack (vulkan driver + gralloc)
     mkdir -p $out/lib/waydroid-nvidia/guest
-    cp -L ${guest-nvidia}/lib/waydroid-nvidia/guest/* $out/lib/waydroid-nvidia/guest/
+    cp -rL ${guest-nvidia}/lib/waydroid-nvidia/guest/* $out/lib/waydroid-nvidia/guest/
 
     # 4. guest prebuilts (hwcomposer + ANGLE + surfaceflinger)
     cp -L ${guest-prebuilts-nvidia}/lib/waydroid-nvidia/guest/* $out/lib/waydroid-nvidia/guest/

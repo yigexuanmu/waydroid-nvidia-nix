@@ -6,12 +6,12 @@
 }:
 
 let
-  version = "0.1.1";
+  version = "0.1.2";
 
   tarball = fetchurl {
     name = "waydroid-nvidia-guest-android-x86_64-v${version}.tar.zst";
     url = "https://github.com/Shiro836/waydroid-nvidia/releases/download/v${version}/waydroid-nvidia-guest-android-x86_64-v${version}.tar.zst";
-    hash = "sha256-fT/JtX8krSPGPu10tFGcGoSdfnzIxR9jeBBliJOg/I0=";
+    hash = "sha256-wKbuemnGvGB19xl9bDzC4hO/GwYbAy8g2m90QfhwRXQ=";
   };
 in
 stdenv.mkDerivation {
@@ -28,7 +28,12 @@ stdenv.mkDerivation {
 
   installPhase = ''
     mkdir -p $out/lib/waydroid-nvidia/guest
-    tar --zstd -xf "$src" -C $out/lib/waydroid-nvidia/guest
+    cd "$(mktemp -d)"
+    tar --zstd -xf "$src"
+    find vendor/lib64 -type f -exec cp -L {} $out/lib/waydroid-nvidia/guest/ \;
+    # rename vulkan.virtio.so -> libvulkan_virtio.so for compat with setup script
+    [ -f $out/lib/waydroid-nvidia/guest/vulkan.virtio.so ] && \
+      mv $out/lib/waydroid-nvidia/guest/vulkan.virtio.so $out/lib/waydroid-nvidia/guest/libvulkan_virtio.so
   '';
 
   meta = {
