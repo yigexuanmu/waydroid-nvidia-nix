@@ -28,12 +28,7 @@ stdenv.mkDerivation {
 
   installPhase = ''
     mkdir -p $out/lib/waydroid-nvidia/guest
-    cd "$(mktemp -d)"
-    tar --zstd -xf "$src"
-    find vendor/lib64 -type f -exec cp -L {} $out/lib/waydroid-nvidia/guest/ \;
-    # rename vulkan.virtio.so -> libvulkan_virtio.so for compat with setup script
-    [ -f $out/lib/waydroid-nvidia/guest/vulkan.virtio.so ] && \
-      mv $out/lib/waydroid-nvidia/guest/vulkan.virtio.so $out/lib/waydroid-nvidia/guest/libvulkan_virtio.so
+    tar --zstd -xf "$src" -C $out/lib/waydroid-nvidia/guest --strip-components=1
   '';
 
   meta = {

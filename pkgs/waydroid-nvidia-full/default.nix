@@ -47,12 +47,15 @@ stdenv.mkDerivation {
     mkdir -p $out/lib/waydroid-nvidia
     cp -L ${virglrenderer-nvidia}/lib/waydroid-nvidia/* $out/lib/waydroid-nvidia/
 
-    # 3. guest stack (vulkan driver + gralloc)
+    # 3. guest stack (vulkan driver + gralloc) + 4. guest prebuilts (hwcomposer + ANGLE + surfaceflinger)
     mkdir -p $out/lib/waydroid-nvidia/guest
-    cp -rL ${guest-nvidia}/lib/waydroid-nvidia/guest/* $out/lib/waydroid-nvidia/guest/
-
-    # 4. guest prebuilts (hwcomposer + ANGLE + surfaceflinger)
-    cp -L ${guest-prebuilts-nvidia}/lib/waydroid-nvidia/guest/* $out/lib/waydroid-nvidia/guest/
+    for guest_dir in ${guest-nvidia}/lib/waydroid-nvidia/guest ${guest-prebuilts-nvidia}/lib/waydroid-nvidia/guest; do
+      for f in $(find "$guest_dir" -type f); do
+        rel="''${f#$guest_dir/}"
+        install -Dm 644 "$f" "$out/lib/waydroid-nvidia/guest/$rel"
+      done
+    done
+    chmod 755 $out/lib/waydroid-nvidia/guest/system/bin/surfaceflinger
 
     # 5. host integration files from upstream
     mkdir -p $out/bin
@@ -84,9 +87,12 @@ stdenv.mkDerivation {
       $out/lib/waydroid-nvidia/virgl_test_server \
       $out/lib/waydroid-nvidia/virgl_render_server \
       $out/lib/waydroid-nvidia/libvirglrenderer.so.1 \
-      $out/lib/waydroid-nvidia/guest/libvulkan_virtio.so \
-      $out/lib/waydroid-nvidia/guest/libgbm_mesa_wrapper.so \
-      $out/lib/waydroid-nvidia/guest/hwcomposer.waydroid.so \
+      $out/lib/waydroid-nvidia/guest/vendor/lib64/hw/vulkan.virtio.so \
+      $out/lib/waydroid-nvidia/guest/vendor/lib64/libgbm_mesa_wrapper.so \
+      $out/lib/waydroid-nvidia/guest/vendor/lib64/hw/hwcomposer.waydroid.so \
+      $out/lib/waydroid-nvidia/guest/vendor/lib64/egl/libEGL_angle.so \
+      $out/lib/waydroid-nvidia/guest/vendor/lib64/egl/libGLESv2_angle.so \
+      $out/lib/waydroid-nvidia/guest/system/bin/surfaceflinger \
       $out/bin/waydroid-nvidia-setup \
       $out/bin/waydroid \
       $out/lib/systemd/user/wd-venus.service \

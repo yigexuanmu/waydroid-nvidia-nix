@@ -28,9 +28,7 @@ stdenv.mkDerivation {
 
   installPhase = ''
     mkdir -p $out/lib/waydroid-nvidia/guest
-    cd "$(mktemp -d)"
-    tar --zstd -xf "$src"
-    find vendor/lib64 system/bin -type f -exec cp -L {} $out/lib/waydroid-nvidia/guest/ \;
+    tar --zstd -xf "$src" -C $out/lib/waydroid-nvidia/guest --strip-components=1
   '';
 
   meta = {
