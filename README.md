@@ -38,7 +38,7 @@ GL 走 ANGLE，ASTC 纹理由 compute shader 模拟，帧同步完全在 GPU 侧
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     waydroid-nvidia-nix = {
-      url = "github:yigexuanmu/waydroid-nvidia-nix";
+      url = "github:yigexuanmu/waydroid-nvidia-nix/Neo";
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };

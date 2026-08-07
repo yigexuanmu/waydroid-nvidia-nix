@@ -43,7 +43,7 @@ emulated in a compute shader, and frame sync is fully GPU-side.
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     waydroid-nvidia-nix = {
-      url = "github:yigexuanmu/waydroid-nvidia-nix";
+      url = "github:yigexuanmu/waydroid-nvidia-nix/Neo";
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
