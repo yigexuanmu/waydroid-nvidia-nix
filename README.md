@@ -1,19 +1,17 @@
-# waydroid-nvidia
+[English](README.en.md) — English version
 
-**GPU-accelerated Waydroid on the NVIDIA driver — container-native, no VM.
-Needs the open kernel modules (`nvidia-open`); the userspace stays NVIDIA's
-regular proprietary stack.**
+# waydroid-nvidia-nix
 
-[![build](https://github.com/Shiro836/waydroid-nvidia/actions/workflows/build.yml/badge.svg)](https://github.com/Shiro836/waydroid-nvidia/actions/workflows/build.yml)
-[![release](https://img.shields.io/github/v/release/Shiro836/waydroid-nvidia)](https://github.com/Shiro836/waydroid-nvidia/releases)
-[![AUR](https://img.shields.io/aur/version/waydroid-nvidia-bin)](https://aur.archlinux.org/packages/waydroid-nvidia-bin)
-[![nix](https://img.shields.io/badge/NixOS-community%20flake-5277C3?logo=nixos&logoColor=white)](https://github.com/yigexuanmu/waydroid-nvidia-nix)
+**基于 NVIDIA 的 Waydroid GPU 加速 — 容器内原生运行，无 VM。自包含 fork，上游源码已完整 vendor 进本仓库。**
+
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-Stock Waydroid can't render on NVIDIA. This project proxies Vulkan (Mesa
-Venus) over a unix socket to a host-side renderer that issues the real Vulkan
-calls — Android x86 and x86_64 app processes render on your NVIDIA GPU,
-CUDA/NVENC and full performance stay intact, everything remains a container:
+本仓库是 [Shiro836/waydroid-nvidia](https://github.com/Shiro836/waydroid-nvidia)
+的自包含 fork（`Neo` 分支）：上游源码、patches、构建脚本全部 vendor 进仓库，
+并额外合入了 PR
+[#4](https://github.com/Shiro836/waydroid-nvidia/pull/4)
+（新增 XBGR2101010 / NV12 / P010 gralloc 格式支持，以及 ETC2 硬件特性探测）。
+以 Nix flake 形式提供 5 个包、overlay 和 NixOS module，所有组件直接从仓库内源码构建。
 
 ```
 Android app ── Vulkan ──▶ guest Mesa Venus ── unix socket ──▶ host renderer
@@ -21,116 +19,165 @@ Android app ── Vulkan ──▶ guest Mesa Venus ── unix socket ──�
 KWin ◀── hwcomposer ◀── gralloc imports ◀── NVIDIA dmabufs ◀── NVIDIA driver
 ```
 
-Buffers are allocated host-side as NVIDIA block-linear images and travel to
-the compositor as native NVIDIA dmabufs — no cross-vendor negotiation, no
-copies. GL runs through ANGLE, ASTC textures are emulated in a compute shader
-(desktop NVIDIA lacks the hardware Android mandates), and frame sync is fully
-GPU-side (timeline syncobjs + imported sync_fd semaphores; zero per-frame
-socket roundtrips). The guest runs native high refresh — 500 Hz verified,
-with a translated ARM game holding 500 fps at 2 ms present-to-present.
+缓冲区在宿主机侧以 NVIDIA block-linear 图像分配，并以原生 NVIDIA dmabuf 直达合成器。
+GL 走 ANGLE，ASTC 纹理由 compute shader 模拟，帧同步完全在 GPU 侧完成。
 
-Verified in the field on Turing, Ampere, Ada and Blackwell GPUs. Real games
-tested: Minecraft Bedrock, Subway Surfers, Arknights, Honkai: Star Rail —
-plus Google Play certification and ARM translation (libhoudini).
+## 前置要求
 
-## Requirements
+- **NVIDIA 开源内核模块**（`nvidia-open`/`nvidia-open-dkms`），对应 **Turing（RTX 20 / GTX 16）或更新** 的显卡
+- 驱动 **595.71+**（推荐 610.x），开启 `nvidia-drm.modeset=1`
+- Wayland 会话（在 KWin / Plasma 6 上测试）
+- 内核 `binder`、`udmabuf` 模块
 
-- **NVIDIA open kernel modules** (`nvidia-open`/`nvidia-open-dkms`) — the
-  closed module has no DMA-BUF support, and every displayed buffer here is
-  one. The userspace (`nvidia-utils`) is the same proprietary code either
-  way; nouveau/NVK is out of scope (stock Waydroid handles it). Open KM
-  means **Turing (RTX 20 / GTX 16) or newer**.
-- Driver **595.71+** (610.x recommended) with **`nvidia-drm.modeset=1`**.
-- A Wayland session (tested on KWin / Plasma 6) and the usual Waydroid
-  kernel bits (binder).
-- Unsure about a machine? `tests/run-probe.sh` checks the exact
-  buffer-sharing paths in ~30 s and names anything missing — see
-  [`docs/troubleshooting.md`](docs/troubleshooting.md).
+## 快速开始
 
-## Install (Arch / AUR)
+### 1. 添加 flake 输入
 
-```sh
-yay -S waydroid-nvidia-bin        # provides/conflicts: waydroid
-waydroid init                     # download an Android image, as usual
-sudo waydroid-nvidia-setup        # add --refresh <hz> to match your monitor
-sudo systemctl enable --now waydroid-container.service
-systemctl --user enable --now wd-venus.service
-# re-log-in once (udev rule for /dev/udmabuf), then:
-waydroid session start            # or launch Waydroid from the app menu
+```nix
+{
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    waydroid-nvidia-nix = {
+      url = "github:yigexuanmu/waydroid-nvidia-nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+  };
+}
 ```
 
-`waydroid-nvidia-setup` deploys the guest stack, writes the config, verifies
-your environment (modeset, vendor image, render node) and removes stale
-config left by older installs. Safe to re-run any time — it's also the first
-thing to try when something misbehaves. Verify acceleration:
+### 2. 启用模块
+
+```nix
+{
+  inputs,
+  ...
+}: {
+  imports = [
+    inputs.waydroid-nvidia-nix.nixosModules.waydroid-nvidia
+  ];
+
+  services.waydroid-nvidia.enable = true;
+  services.waydroid-nvidia.refreshRate = 144; # 你的显示器刷新率
+}
+```
+
+`services.waydroid-nvidia.package` 默认即为 flake 的 `waydroid-nvidia-full`，无需手动指定。
+
+### 3. 部署
+
+```sh
+sudo nixos-rebuild switch --flake .#myhost
+```
+
+### 4. 初始化并启动
+
+```sh
+sudo waydroid init                     # 下载 Android 镜像
+sudo waydroid-nvidia-setup --refresh 144   # --refresh 匹配显示器刷新率
+systemctl --user enable --now wd-venus.service
+nohup waydroid session start &>/dev/null &
+```
+
+### 5. 验证 GPU 加速
 
 ```sh
 sudo waydroid shell dumpsys SurfaceFlinger | grep GLES
-# GLES: ... ANGLE (NVIDIA, Vulkan ... Venus (NVIDIA GeForce ...))
-sudo waydroid shell getprop ro.product.cpu.abilist
-# x86_64,x86,... means Houdini can translate ARM32-only apps into the x86 path
 ```
 
-**If your compositor is not on the NVIDIA GPU** (monitors connected to
-another GPU, iGPU-driven laptop panel): the compositor can't display this
-stack's NVIDIA buffers and the Waydroid window dies instantly. The workaround
-is running Waydroid nested inside gamescope pinned to the NVIDIA GPU, so
-compositing happens on NVIDIA and gamescope hands your desktop something it
-can display. Needs `gamescope` and `wayland-utils`:
+预期输出示例：
+
+```
+GLES: Google Inc. (NVIDIA), ANGLE (NVIDIA, Vulkan 1.3.341 (NVIDIA Virtio-GPU Venus (NVIDIA GeForce RTX 4060 Ti) (0x00002788)), venus-26.0.65.35), OpenGL ES 3.2 (ANGLE 2.1.1 git hash: c1a25085dd9e)
+```
+
+## ARM 应用运行（x86 上运行 ARM 应用）
+
+Waydroid 在 x86 上默认只能运行 x86 APK。安装 ARM 转译层即可运行 ARM 应用。
+
+**AMD CPU → 用 libndk；Intel CPU → 用 libhoudini。**
 
 ```sh
-waydroid session stop; sleep 5
-W=$(wayland-info | grep -B1 'flags: current' | grep -oP 'width:\s*\K\d+' | head -1)
-H=$(wayland-info | grep -B1 'flags: current' | grep -oP 'height:\s*\K\d+' | head -1)
-GPU=$(lspci -nn | grep -Ei 'vga|3d' | grep -i nvidia | grep -oP '\[\K10de:[0-9a-f]{4}' | head -1)
-gamescope -f -W "$W" -H "$H" --prefer-vk-device "$GPU" -- \
-  sh -c 'WAYLAND_DISPLAY=$GAMESCOPE_WAYLAND_DISPLAY exec waydroid show-full-ui'
+cd ~
+git clone https://github.com/casualsnek/waydroid_script
+cd waydroid_script
+python3 -m venv venv
+venv/bin/pip install -r requirements.txt
+nix-shell -p lzip --run "sudo venv/bin/python3 main.py install libndk"
 ```
 
-Launch apps from inside Android while nested (`waydroid app launch` swaps the
-window and crashes gamescope). **Broken on hybrid Intel+NVIDIA laptops right
-now** — gamescope crashes and takes the host session down with it
-(issue #2, upstream gamescope#1590); hybrid support is being worked on there.
+重启容器：
 
-**NixOS:** community flake —
-[yigexuanmu/waydroid-nvidia-nix](https://github.com/yigexuanmu/waydroid-nvidia-nix).
-**Other distros:** the same binaries install anywhere — see
-[`docs/install-manual.md`](docs/install-manual.md).
+```sh
+sudo systemctl restart waydroid-container
+```
 
-**Releases are fully attested**: every asset is CI-built from pinned sources
-and carries SLSA provenance —
-`gh attestation verify <asset> --repo Shiro836/waydroid-nvidia`.
+验证：
 
-## Documentation
+```sh
+echo "getprop ro.product.cpu.abilist" | sudo waydroid shell
+# 应包含 arm64-v8a, armeabi-v7a
+```
 
-- [`docs/troubleshooting.md`](docs/troubleshooting.md) — health checks, known
-  failure modes, one-command debug capture, GPU probe kit
-- [`docs/architecture.md`](docs/architecture.md) — how the stack works
-- [`docs/transport-design.md`](docs/transport-design.md) — socket protocol
-  extensions (fences, imports, GPU allocation)
-- [`docs/building.md`](docs/building.md) — building from source, repo layout,
-  CI/attestation
-- [`docs/dev-workflow.md`](docs/dev-workflow.md) — dev environment setup and
-  the edit → build → deploy → measure loop
-- [`docs/install-manual.md`](docs/install-manual.md) — non-Arch installation
+## 包一览
 
-## Limitations & roadmap
+| `nix build .#<attr>` | 说明 |
+|----------------------|------|
+| `virglrenderer-nvidia` | 宿主机 Venus 渲染服务（从源码构建，含 NVIDIA patches 与 PR#4 格式支持） |
+| `waydroid-nvidia` | 打过补丁的 Waydroid Python 工具（从源码构建） |
+| `guest-nvidia` | 客户机 Vulkan 驱动 `libvulkan_virtio.so` + gralloc `libgbm_mesa_wrapper.so`（CI 预编译） |
+| `guest-prebuilts-nvidia` | 客户机 hwcomposer + ANGLE + surfaceflinger（CI 预编译） |
+| `waydroid-nvidia-full` | 上述全部 + systemd 单元 + udev 规则 + tmpfiles + setup 脚本 |
+| `default` | 同 `waydroid-nvidia-full` |
 
-Not yet supported: ETC2 texture emulation (ASTC is; affected games show
-placeholder textures), ASTC readback (uploads/sampling work), RGBA_FP16
-gralloc buffers. dma_buf mmap read bandwidth is below native (readback paths
-only). Planned: self-contained guest image published as an OTA channel,
-shared-memory ring transport, ETC2, input-to-photon measurement.
+也可通过 `overlays.default` 或直接引用 `packages.x86_64-linux.<attr>` 使用。
 
-## Prior art & references
+## 架构
 
-Anbox Cloud on NVIDIA (commercial existence proof of this shape) ·
-waydroid#1883 / #564 / #1402 ·
-[Mesa Venus](https://gitlab.freedesktop.org/mesa/mesa) ·
-[virglrenderer](https://gitlab.freedesktop.org/virgl/virglrenderer) · ANGLE.
+```
+┌─────────────────────────────────────────────────┐
+│                  宿主机 (NixOS)                   │
+│                                                  │
+│  ┌─────────────────────┐   ┌──────────────────┐ │
+│  │  waydroid session   │   │  wd-venus        │ │
+│  │  (Python)           │   │  virgl_test_server│ │
+│  └────────┬────────────┘   │  ┌──────────────┐│ │
+│           │ binder         │  │virgl_render  ││ │
+│           ▼                │  │_server       ││ │
+│  ┌─────────────────────┐   │  │  dlopen()    ││ │
+│  │  LXC container      │   │  │ libvulkan.so ││ │
+│  │  (Android 13)       │   │  └──────┬───────┘│ │
+│  │  ┌───────────────┐  │   └─────────┼─────────┘ │
+│  │  │ SurfaceFlinger│  │             │ venus.sock │
+│  │  │ hwcomposer    │──┼─────────────┘           │
+│  │  │ libvulkan     │  │  vtest protocol          │
+│  │  │ _virtio.so    │  │                         │
+│  │  └───────────────┘  │                         │
+│  └─────────────────────┘                         │
+│              │ NVIDIA GPU (Vulkan)               │
+└──────────────┼──────────────────────────────────┘
+               ▼
+      NVIDIA GeForce RTX
+```
 
-## License
+## 常见问题
 
-Original code in `src/`, `build/`, `dev/`, `tests/`, `docs/` is MIT (see
-[`LICENSE`](LICENSE)). Files under `patches/` are derivative works of their
-respective upstreams and carry those upstreams' licenses.
+**合成器不在 NVIDIA GPU 上**（显示器接在其他 GPU / 核显驱动笔记本屏）：合成器无法显示本栈的
+NVIDIA 缓冲区，Waydroid 窗口会立即崩溃。可用 `gamescope` 将 Waydroid 嵌套固定在 NVIDIA GPU 上运行。
+
+详见仓库内 [`docs/troubleshooting.md`](docs/troubleshooting.md)。
+
+## 开发
+
+```sh
+nix build .#waydroid-nvidia-full
+```
+
+模块本地测试（不部署到全系统）：
+
+```nix
+inputs.waydroid-nvidia-nix.url = "path:/path/to/waydroid-nvidia-nix";
+```
+
+## 许可证
+
+MIT（打包层）。上游项目遵循各自许可证。`patches/` 下的文件是各自上游的衍生作品，遵循对应上游许可证。

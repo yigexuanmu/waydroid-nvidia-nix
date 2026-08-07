@@ -1,25 +1,42 @@
-[中文](README.md) — 阅读中文版本
+[中文](README.md) — Chinese version
 
 # waydroid-nvidia-nix
 
-**GPU-accelerated Waydroid on NVIDIA**, packaged as Nix packages and a NixOS module.
+**GPU-accelerated Waydroid on NVIDIA, container-native, no VM. A self-contained
+fork with the full upstream source vendored into this repo.**
 
-All components reference upstream sources — no vendoring.
+[![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-- Host (virglrenderer) and Waydroid Python tools are built from source
-- Guest Android components (Vulkan driver, hwcomposer, ANGLE, surfaceflinger) are fetched from CI release tarballs
+This repository is a self-contained fork of
+[Shiro836/waydroid-nvidia](https://github.com/Shiro836/waydroid-nvidia)
+(the `Neo` branch): upstream source, patches and build scripts are all vendored
+in-repo, plus PR
+[#4](https://github.com/Shiro836/waydroid-nvidia/pull/4)
+is merged (new XBGR2101010 / NV12 / P010 gralloc formats and an ETC2 hardware
+feature probe). It is exposed as a Nix flake with 5 packages, an overlay and a
+NixOS module, and every component builds directly from the in-repo source.
+
+```
+Android app ── Vulkan ──▶ guest Mesa Venus ── unix socket ──▶ host renderer
+                                                                   │
+KWin ◀── hwcomposer ◀── gralloc imports ◀── NVIDIA dmabufs ◀── NVIDIA driver
+```
+
+Buffers are allocated host-side as NVIDIA block-linear images and reach the
+compositor as native NVIDIA dmabufs. GL runs through ANGLE, ASTC textures are
+emulated in a compute shader, and frame sync is fully GPU-side.
 
 ## Prerequisites
 
-- NVIDIA open kernel module (`nvidia-open`) with `nvidia-drm.modeset=1`
-- NVIDIA userspace driver `nvidia-utils` (≥ 610.x recommended)
-- Wayland session
-- `binder` Linux kernel module (required by Waydroid)
-- `udmabuf` kernel module (required by virgl Venus)
+- **NVIDIA open kernel modules** (`nvidia-open`/`nvidia-open-dkms`) — Turing
+  (RTX 20 / GTX 16) or newer
+- Driver **595.71+** (610.x recommended) with `nvidia-drm.modeset=1`
+- A Wayland session (tested on KWin / Plasma 6)
+- Kernel `binder` and `udmabuf` modules
 
 ## Quick Start
 
-### 1. Add flake input
+### 1. Add the flake input
 
 ```nix
 {
@@ -35,8 +52,6 @@ All components reference upstream sources — no vendoring.
 
 ### 2. Enable the module
 
-Waydroid-nvidia config is usually kept in a separate file, e.g. `configuration/modules/services/waydroid-nvidia.nix`:
-
 ```nix
 {
   inputs,
@@ -48,47 +63,11 @@ Waydroid-nvidia config is usually kept in a separate file, e.g. `configuration/m
 
   services.waydroid-nvidia.enable = true;
   services.waydroid-nvidia.refreshRate = 144; # your monitor's refresh rate
-  services.waydroid-nvidia.package = inputs.waydroid-nvidia-nix.packages.x86_64-linux.waydroid-nvidia-full;
 }
 ```
 
-Or inline it directly in `flake.nix`:
-
-```nix
-modules = [
-  waydroid-nvidia-nix.nixosModules.waydroid-nvidia
-  {
-    services.waydroid-nvidia.enable = true;
-    services.waydroid-nvidia.refreshRate = 144;
-    services.waydroid-nvidia.package = waydroid-nvidia-nix.packages.x86_64-linux.waydroid-nvidia-full;
-  }
-];
-```
-
-If using a separate file, import it in your main modules list:
-
-```nix
-{
-  outputs = { nixpkgs, ... } @ inputs: {
-    nixosConfigurations.myhost = nixpkgs.lib.nixosSystem {
-      specialArgs = { inherit inputs; };
-      modules = [
-        ./configuration/modules/services/waydroid-nvidia.nix
-      ];
-    };
-  };
-}
-```
-
-Options:
-
-| Method | Description |
-|--------|-------------|
-| `waydroid-nvidia-nix.nixosModules.waydroid-nvidia` | Reference the module directly; `package` defaults to the flake's package |
-| `waydroid-nvidia-nix.overlays.default` | Add to `nixpkgs.overlays`, then reference from `pkgs.waydroid-nvidia-full` |
-| `waydroid-nvidia-nix.packages.x86_64-linux.waydroid-nvidia-full` | Standalone package, set `package` manually in the service |
-
-The first one is recommended.
+`services.waydroid-nvidia.package` defaults to the flake's `waydroid-nvidia-full`;
+no need to set it manually.
 
 ### 3. Deploy
 
@@ -96,32 +75,22 @@ The first one is recommended.
 sudo nixos-rebuild switch --flake .#myhost
 ```
 
-### 4. Initialize Android images
+### 4. Initialize and start
 
 ```sh
-sudo waydroid init
-```
-
-### 5. Configure NVIDIA acceleration
-
-```sh
-sudo waydroid-nvidia-setup --refresh 144
-# --refresh specifies your display refresh rate in Hz
-```
-
-### 6. Start the session
-
-```sh
+sudo waydroid init                     # download an Android image
+sudo waydroid-nvidia-setup --refresh 144   # --refresh to match your monitor
+systemctl --user enable --now wd-venus.service
 nohup waydroid session start &>/dev/null &
 ```
 
-### 7. Verify GPU acceleration
+### 5. Verify GPU acceleration
 
 ```sh
 sudo waydroid shell dumpsys SurfaceFlinger | grep GLES
 ```
 
-Expected output:
+Expected output example:
 
 ```
 GLES: Google Inc. (NVIDIA), ANGLE (NVIDIA, Vulkan 1.3.341 (NVIDIA Virtio-GPU Venus (NVIDIA GeForce RTX 4060 Ti) (0x00002788)), venus-26.0.65.35), OpenGL ES 3.2 (ANGLE 2.1.1 git hash: c1a25085dd9e)
@@ -129,7 +98,8 @@ GLES: Google Inc. (NVIDIA), ANGLE (NVIDIA, Vulkan 1.3.341 (NVIDIA Virtio-GPU Ven
 
 ## ARM Translation (run ARM apps on x86)
 
-Waydroid on x86 only runs x86 APKs by default. Install an ARM translation layer to run ARM apps.
+Waydroid on x86 only runs x86 APKs by default. Install an ARM translation layer
+to run ARM apps.
 
 **AMD CPU → use libndk. Intel CPU → use libhoudini.**
 
@@ -155,48 +125,18 @@ echo "getprop ro.product.cpu.abilist" | sudo waydroid shell
 # Should include arm64-v8a, armeabi-v7a
 ```
 
-## Usage
-
-| Command | Description |
-|---------|-------------|
-| `waydroid status` | Check container and session status |
-| `waydroid show-full-ui` | Show Android desktop in a window |
-| `waydroid app install path/to/app.apk` | Install an APK |
-| `waydroid app launch <package>` | Launch an app (e.g. `com.android.chrome`) |
-| `waydroid shell` | Open Android shell (use `echo "cmd" \| sudo waydroid shell` for one-shot commands) |
-| `echo "getprop <key>" \| sudo waydroid shell` | Read Android properties |
-| `sudo waydroid shell input tap x y` | Simulate touch input |
-| `sudo waydroid shell input keyevent KEYCODE_BACK` | Simulate key press |
-
-List installed packages:
-
-```sh
-echo "pm list packages" | sudo waydroid shell
-```
-
-### Restarting Waydroid
-
-```sh
-# Stop the old session
-pkill -f "waydroid session"
-
-# Restart container
-sudo systemctl restart waydroid-container
-
-# Start a new session
-nohup waydroid session start &>/dev/null &
-```
-
 ## Package Overview
 
 | `nix build .#<attr>` | Description |
 |----------------------|-------------|
-| `virglrenderer-nvidia` | Host Venus render server (built from source with NVIDIA patches) |
+| `virglrenderer-nvidia` | Host Venus render server (built from source with NVIDIA patches + PR#4 formats) |
 | `waydroid-nvidia` | Patched Waydroid Python tools (built from source) |
 | `guest-nvidia` | Guest Vulkan driver `libvulkan_virtio.so` + gralloc `libgbm_mesa_wrapper.so` (CI prebuilt) |
 | `guest-prebuilts-nvidia` | Guest hwcomposer + ANGLE + surfaceflinger (CI prebuilt) |
 | `waydroid-nvidia-full` | All of the above + systemd units + udev rules + tmpfiles + setup script |
 | `default` | Same as `waydroid-nvidia-full` |
+
+Also usable via `overlays.default` or by referencing `packages.x86_64-linux.<attr>` directly.
 
 ## Architecture
 
@@ -226,9 +166,16 @@ nohup waydroid session start &>/dev/null &
       NVIDIA GeForce RTX
 ```
 
-## Development
+## Troubleshooting
 
-Build locally:
+**Compositor not on the NVIDIA GPU** (monitors on another GPU, iGPU-driven
+laptop panel): the compositor can't display this stack's NVIDIA buffers and the
+Waydroid window dies instantly. Run Waydroid nested inside `gamescope` pinned to
+the NVIDIA GPU as a workaround.
+
+See [`docs/troubleshooting.md`](docs/troubleshooting.md) for details.
+
+## Development
 
 ```sh
 nix build .#waydroid-nvidia-full
@@ -237,14 +184,11 @@ nix build .#waydroid-nvidia-full
 Test the module locally (without deploying system-wide):
 
 ```nix
-# In /etc/nixos/flake.nix
 inputs.waydroid-nvidia-nix.url = "path:/path/to/waydroid-nvidia-nix";
 ```
 
-## Credits
-
-All patches and prebuilt components are from [Shiro836/waydroid-nvidia](https://github.com/Shiro836/waydroid-nvidia). This repository only provides the Nix packaging layer.
-
 ## License
 
-MIT (packaging layer). Upstream projects are under their respective licenses.
+MIT (packaging layer). Upstream projects are under their respective licenses;
+files under `patches/` are derivative works of their upstreams and carry those
+upstreams' licenses.
