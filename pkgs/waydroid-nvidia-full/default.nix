@@ -1,7 +1,6 @@
 {
   lib
 , stdenv
-, wnv-src
 , virglrenderer-nvidia
 , waydroid-nvidia
 , guest-nvidia
@@ -67,15 +66,15 @@ stdenv.mkDerivation {
     substituteInPlace $out/lib/systemd/system/waydroid-container.service \
       --replace-fail '/usr/bin/waydroid' "$out/bin/waydroid"
 
-    cp ${wnv-src}/packaging/aur/waydroid-nvidia-bin/wd-venus.service \
+    cp ${./../../packaging/aur/waydroid-nvidia-bin/wd-venus.service} \
       $out/lib/systemd/user/wd-venus.service
     substituteInPlace $out/lib/systemd/user/wd-venus.service \
       --replace-fail '/usr/lib/waydroid-nvidia' "$out/lib/waydroid-nvidia"
-    cp ${wnv-src}/packaging/aur/waydroid-nvidia-bin/waydroid-venus.tmpfiles \
+    cp ${./../../packaging/aur/waydroid-nvidia-bin/waydroid-venus.tmpfiles} \
       $out/lib/tmpfiles.d/waydroid-venus.conf
-    cp ${wnv-src}/packaging/aur/waydroid-nvidia-bin/waydroid-nvidia.rules \
+    cp ${./../../packaging/aur/waydroid-nvidia-bin/waydroid-nvidia.rules} \
       $out/lib/udev/rules.d/70-waydroid-nvidia.rules
-    cp ${wnv-src}/packaging/aur/waydroid-nvidia-bin/waydroid-nvidia-setup \
+    cp ${./../../packaging/aur/waydroid-nvidia-bin/waydroid-nvidia-setup} \
       $out/bin/waydroid-nvidia-setup
     chmod +x $out/bin/waydroid-nvidia-setup
     # Patch hardcoded /usr/lib paths to the Nix store location

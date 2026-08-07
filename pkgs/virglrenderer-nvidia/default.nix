@@ -14,7 +14,6 @@
 , vulkan-headers
 , vulkan-loader
 , wayland
-, wnv-src
 }:
 
 let
@@ -31,15 +30,16 @@ stdenv.mkDerivation {
   inherit pname version src;
 
   patches = [
-    "${wnv-src}/patches/virglrenderer/0001-vtest-support-exporting-sync_file-fds-for-venus-sync.patch"
-    "${wnv-src}/patches/virglrenderer/0002-vtest-support-importing-dmabufs-as-blob-resources-fo.patch"
-    "${wnv-src}/patches/virglrenderer/0003-vtest-raise-listen-backlog-to-128.patch"
-    "${wnv-src}/patches/virglrenderer/0004-wip-gpu-alloc-and-global-priority.patch"
+    ./../../patches/virglrenderer/0001-vtest-support-exporting-sync_file-fds-for-venus-sync.patch
+    ./../../patches/virglrenderer/0002-vtest-support-importing-dmabufs-as-blob-resources-fo.patch
+    ./../../patches/virglrenderer/0003-vtest-raise-listen-backlog-to-128.patch
+    ./../../patches/virglrenderer/0004-wip-gpu-alloc-and-global-priority.patch
   ];
 
   postPatch = ''
-    cp ${wnv-src}/src/virglrenderer-vtest/vtest_gpu_alloc.c vtest/
-    cp ${wnv-src}/src/virglrenderer-vtest/vtest_gpu_alloc.h vtest/
+    cp ${./../../src/virglrenderer-vtest/vtest_gpu_alloc.c} vtest/vtest_gpu_alloc.c
+    cp ${./../../src/virglrenderer-vtest/vtest_gpu_alloc.h} vtest/vtest_gpu_alloc.h
+    cp ${./../../src/vtest_alloc_formats.h} vtest/vtest_alloc_formats.h
   '';
 
   nativeBuildInputs = [ meson ninja pkg-config python3 python3Packages.pyyaml ];

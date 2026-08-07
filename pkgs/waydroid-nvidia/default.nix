@@ -8,7 +8,6 @@
 , gtk3
 , dbus
 , lxc
-, wnv-src
 }:
 
 let
@@ -33,7 +32,7 @@ stdenv.mkDerivation {
 
   src = waydroid-src;
 
-  patches = [ "${wnv-src}/patches/waydroid/0001-nvidia-integration.patch" ];
+  patches = [ ./../../patches/waydroid/0001-nvidia-integration.patch ];
 
   nativeBuildInputs = [ python ];
 

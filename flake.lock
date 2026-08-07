@@ -18,25 +18,7 @@
     },
     "root": {
       "inputs": {
-        "nixpkgs": "nixpkgs",
-        "wnv-src": "wnv-src"
-      }
-    },
-    "wnv-src": {
-      "flake": false,
-      "locked": {
-        "lastModified": 1784896711,
-        "narHash": "sha256-D1qG0+t9+6bdIEGZw6LaiIsU3yzASwY/VF0U2PM1Pcw=",
-        "owner": "Shiro836",
-        "repo": "waydroid-nvidia",
-        "rev": "4239f9055d9ecee765cf6890227cf4d1d9f7b13e",
-        "type": "github"
-      },
-      "original": {
-        "owner": "Shiro836",
-        "ref": "v0.1.2",
-        "repo": "waydroid-nvidia",
-        "type": "github"
+        "nixpkgs": "nixpkgs"
       }
     }
   },
