@@ -1,5 +1,5 @@
 diff --git a/hwcomposer/gralloc_handler.cpp b/hwcomposer/gralloc_handler.cpp
-index a86b9aa..940c89b 100644
+index a86b9aa..78721da 100644
 --- a/hwcomposer/gralloc_handler.cpp
 +++ b/hwcomposer/gralloc_handler.cpp
 @@ -25,6 +25,7 @@
@@ -10,7 +10,16 @@ index a86b9aa..940c89b 100644
  #include <cstdint>
  #include <memory>
  
-@@ -162,6 +163,32 @@ namespace {
+@@ -114,6 +115,8 @@ namespace {
+     };
+ 
+     bool isFormatSupported(struct display *display, uint32_t format) {
++        /* see the formats_mutex comment in wayland-hwc.h */
++        std::lock_guard<std::mutex> lock(display->formats_mutex);
+         return display->formats.count(format) == 1;
+     }
+ 
+@@ -162,6 +165,66 @@ namespace {
          return fmt;
      }
  }
@@ -18,10 +27,44 @@ index a86b9aa..940c89b 100644
 +bool compositor_supports(display *display, uint32_t drm_format, uint64_t modifier) {
 +    if (modifier == DRM_FORMAT_MOD_INVALID)
 +        return false;
-+    auto it = display->modifiers.find(drm_format);
-+    if (it == display->modifiers.end())
++    /* NVIDIA's zwp_linux_dmabuf_v1 advertisement lists DRM_FORMAT_MOD_LINEAR
++     * as generically supported for essentially every format (confirmed live:
++     * waydroid.modifiers.<ABGR8888>.* includes modifier 0), but its EGL
++     * import path does not reliably honor that for dma-bufs it didn't
++     * allocate itself -- specifically the CPU-mappable/software-written
++     * buffers our vtest gralloc has to serve as plain udmabufs (ad SDKs,
++     * video overlays: usage forces MAPPABLE, which forces linear on the host
++     * side). Attaching one of these via zwp_linux_buffer_params_v1 fails with
++     * "Could not bind the given EGLImage to a CoglTexture2D" (protocol error
++     * 7), which is fatal to the whole Wayland connection -- this is issue
++     * #11 ("Waydroid UI crashing when opening certain apps and pages",
++     * reproduced with Block Craft 3D's ad overlay: 1814x471 ABGR8888 mod 0
++     * import failed while every other, tiled-modifier layer in the same
++     * frame imported fine).
++     *
++     * Every other modifier this same NVIDIA/Mutter combo advertises for
++     * these formats is one of its own block-linear tiled modifiers, which do
++     * import correctly (seen throughout the same frame). So: never trust the
++     * advertised support for LINEAR specifically. Reporting it as
++     * unsupported routes the layer through the caller's existing
++     * displayable_buffer() gate instead of a direct dmabuf attach, which
++     * makes SurfaceFlinger composite it into the framebuffer target via GLES
++     * on the next frame -- that path always produces a real tiled modifier,
++     * never linear, so it is unaffected by this restriction. */
++    if (modifier == DRM_FORMAT_MOD_LINEAR)
 +        return false;
-+    const auto &mods = it->second;
++    /* see the formats_mutex comment in wayland-hwc.h -- copy the vector out
++     * under the lock rather than returning a reference into it, since the
++     * writer (dmabuf_modifiers(), a different thread) can reallocate it the
++     * moment this function returns. */
++    std::vector<uint64_t> mods;
++    {
++        std::lock_guard<std::mutex> lock(display->formats_mutex);
++        auto it = display->modifiers.find(drm_format);
++        if (it == display->modifiers.end())
++            return false;
++        mods = it->second;
++    }
 +    return std::find(mods.begin(), mods.end(), modifier) != mods.end();
 +}
 +
@@ -43,7 +86,7 @@ index a86b9aa..940c89b 100644
  std::unique_ptr<buffer> create_dmabuf_wl_buffer(display *display, const buffer_metadata& metadata,
                                                                  int prime_fd, int drm_format, int byte_stride,
                                                                  int offset, uint64_t modifier, buffer_handle_t handle)
-@@ -178,6 +205,15 @@ std::unique_ptr<buffer> create_dmabuf_wl_buffer(display *display, const buffer_m
+@@ -178,6 +241,15 @@ std::unique_ptr<buffer> create_dmabuf_wl_buffer(display *display, const buffer_m
      }
      assert(drm_format >= 0);
  
@@ -59,7 +102,7 @@ index a86b9aa..940c89b 100644
      zwp_linux_buffer_params_v1 *params = zwp_linux_dmabuf_v1_create_params(display->dmabuf);
      zwp_linux_buffer_params_v1_add(params, prime_fd, 0, offset, byte_stride, modifier >> 32, modifier & 0xffffffff);
      zwp_linux_buffer_params_v1_add_listener(params, &params_listener, nullptr);
-@@ -264,6 +300,11 @@ std::unique_ptr<buffer> create_buffer_gbm(display *display, const buffer_metadat
+@@ -264,6 +336,11 @@ std::unique_ptr<buffer> create_buffer_gbm(display *display, const buffer_metadat
  }
  std::unique_ptr<buffer> create_buffer_cros(display *display, const buffer_metadata& metadata, buffer_handle_t handle) {
      auto *cros_handle = reinterpret_cast<const cros_gralloc_handle *>(handle);
@@ -71,7 +114,7 @@ index a86b9aa..940c89b 100644
      return create_dmabuf_wl_buffer(display, metadata, cros_handle->fds[0], cros_handle->format, cros_handle->strides[0], cros_handle->offsets[0], cros_handle->format_modifier, handle);
  }
  std::unique_ptr<buffer> create_buffer_android(display *display, const buffer_metadata& metadata, buffer_handle_t handle) {
-@@ -314,6 +355,8 @@ gralloc_handler::get_buffer_metadata_func gralloc_handler::select_get_buffer_met
+@@ -314,6 +391,8 @@ gralloc_handler::get_buffer_metadata_func gralloc_handler::select_get_buffer_met
  }
  
  gralloc_handler::create_buffer_func gralloc_handler::select_create_buffer_impl(display *display, GrallocType gralloc_type) {
@@ -80,7 +123,7 @@ index a86b9aa..940c89b 100644
      if (gralloc_type == GrallocType::GRALLOC_GBM && display->dmabuf) {
          return create_buffer_gbm;
      } else if (gralloc_type == GrallocType::GRALLOC_CROS && display->dmabuf) {
-@@ -333,7 +376,39 @@ gralloc_handler::update_shm_buffer_func gralloc_handler::select_update_shm_buffe
+@@ -333,7 +412,39 @@ gralloc_handler::update_shm_buffer_func gralloc_handler::select_update_shm_buffe
      }
  }
  
@@ -526,10 +569,30 @@ index 000b388..a874a73 100644
                  m_draw_framebuffer_at = i;
              }
 diff --git a/hwcomposer/wayland-hwc.cpp b/hwcomposer/wayland-hwc.cpp
-index 0bd2f35..d5d1eeb 100644
+index 0bd2f35..2c31e2e 100644
 --- a/hwcomposer/wayland-hwc.cpp
 +++ b/hwcomposer/wayland-hwc.cpp
-@@ -2047,7 +2047,17 @@ static void* hwc_wayland_thread(void* data) {
+@@ -1405,6 +1405,11 @@ dmabuf_modifiers(void *data, struct zwp_linux_dmabuf_v1 * dmabuf,
+     if (modifier == DRM_FORMAT_MOD_INVALID)
+         return;
+ 
++    /* see the formats_mutex comment in wayland-hwc.h -- gralloc_handler.cpp
++     * reads modifiers[] from a different thread with no other ordering
++     * guarantee between us. */
++    std::lock_guard<std::mutex> lock(d->formats_mutex);
++
+     std::stringstream prop_name_stream;
+     std::stringstream prop_value_stream;
+     prop_name_stream << "waydroid.modifiers." << std::hex << format << "." << std::dec << d->modifiers[format].size();
+@@ -1420,6 +1425,7 @@ static void
+ dmabuf_format(void *data, struct zwp_linux_dmabuf_v1 *, uint32_t format)
+ {
+     struct display *d = (struct display*)data;
++    std::lock_guard<std::mutex> lock(d->formats_mutex);
+     d->formats.insert(format);
+ }
+ 
+@@ -2047,7 +2053,17 @@ static void* hwc_wayland_thread(void* data) {
      while (ret != -1)
          ret = wl_display_dispatch(display);
  
@@ -549,10 +612,18 @@ index 0bd2f35..d5d1eeb 100644
      abort();
  }
 diff --git a/hwcomposer/wayland-hwc.h b/hwcomposer/wayland-hwc.h
-index 82ebbd5..07d1210 100644
+index 82ebbd5..d40de3e 100644
 --- a/hwcomposer/wayland-hwc.h
 +++ b/hwcomposer/wayland-hwc.h
-@@ -107,18 +107,21 @@ struct buffer_metadata {
+@@ -44,6 +44,7 @@
+ #include <errno.h>
+ #include <map>
+ #include <list>
++#include <mutex>
+ #include <set>
+ #include <pthread.h>
+ #include <semaphore.h>
+@@ -107,18 +108,21 @@ struct buffer_metadata {
      uint32_t width;
      uint32_t pixel_stride;
      uint32_t format;
@@ -579,3 +650,20 @@ index 82ebbd5..07d1210 100644
  }
  
  struct buffer {
+@@ -370,6 +374,16 @@ struct display {
+     int req_height;
+     int refresh;
+ 
++    /* formats/modifiers are written by dmabuf_format()/dmabuf_modifiers()
++     * (zwp_linux_dmabuf_v1 listener callbacks, run on wayland_thread) and
++     * read by gralloc_handler.cpp's compositor_supports()/isFormatSupported()
++     * (called from whatever thread creates a layer's buffer -- SurfaceFlinger's
++     * HWC binder thread, not wayland_thread). Nothing serialized that before:
++     * confirmed live as a real crash (Scudo "invalid chunk state when
++     * deallocating" inside modifiers[format].push_back(), i.e. one thread
++     * reading a std::vector's backing storage while another reallocates it).
++     * Guard every access with this lock. */
++    std::mutex formats_mutex;
+     std::unordered_set<uint32_t> formats;
+ 
+     std::map<uint32_t, std::vector<uint64_t>> modifiers;

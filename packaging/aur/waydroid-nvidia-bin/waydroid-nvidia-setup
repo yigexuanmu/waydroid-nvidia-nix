@@ -24,6 +24,17 @@ set -euo pipefail
 die() { echo "waydroid-nvidia-setup: $*" >&2; exit 1; }
 [ "$(id -u)" = 0 ] || die "must run as root"
 
+# The Venus socket lives under the desktop user's own private runtime directory
+# (see wd-venus.service: RuntimeDirectory=waydroid-venus, mode 0700), not a shared
+# system path, so no other local user can find or connect to it. That means this
+# script — which itself runs as root, via sudo — needs to know which desktop user
+# actually owns that session, hence the $SUDO_USER requirement below rather than
+# just assuming uid 0's own (nonexistent) runtime directory.
+[ -n "${SUDO_USER:-}" ] || die "run this with sudo from your desktop user's own session (not as a root login shell) — needed to find your Venus socket under \$XDG_RUNTIME_DIR"
+DESKTOP_UID=$(id -u "$SUDO_USER") || die "cannot resolve a uid for user '$SUDO_USER'"
+[ -d "/run/user/$DESKTOP_UID" ] || die "/run/user/$DESKTOP_UID does not exist — is '$SUDO_USER' logged in to a session?"
+VENUS_SOCK="/run/user/$DESKTOP_UID/waydroid-venus/venus.sock"
+
 REFRESH=""
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -129,7 +140,21 @@ echo "== nvidia-drm.modeset: Y"
 # SurfaceFlinger buffers our driver never sees -> crash loop (issue #1:
 # system and vendor images version independently, and 'upgrade -o' never
 # refreshes them — migrated installs can carry an ancient vendor).
-VIMG=/var/lib/waydroid/images/vendor.img
+#
+# images_path is NOT always /var/lib/waydroid/images: the waydroid-image
+# package (a completely ordinary way to install Waydroid, e.g. on Arch) ships
+# a preinstalled system.img/vendor.img under /usr/share/waydroid-extra/images
+# and Waydroid's own initializer switches images_path to that location
+# whenever it finds one, rather than downloading OTA images at all — an
+# install using it has nothing under /var/lib/waydroid/images at all, ever.
+# Read the real path out of waydroid.cfg instead of assuming the OTA default.
+IMAGES_PATH=$(python3 -c '
+import configparser
+cp = configparser.ConfigParser()
+cp.read("'"$CFG"'")
+print(cp.get("waydroid", "images_path", fallback="/var/lib/waydroid/images"))
+')
+VIMG="$IMAGES_PATH/vendor.img"
 [ -f "$VIMG" ] || die "$VIMG missing — run 'waydroid init' first"
 VMNT=$(mktemp -d)
 mount -o loop,ro "$VIMG" "$VMNT" || { rmdir "$VMNT"; die "cannot inspect $VIMG (mount failed)"; }
@@ -139,6 +164,32 @@ umount "$VMNT"; rmdir "$VMNT"
 [ "$HAVE_MINIGBM" = 1 ] || die "vendor image is too old (no minigbm_gbm_mesa gralloc).
 Run 'waydroid init -f' to fetch current images (apps/data are kept), then re-run this setup."
 echo "== vendor image: minigbm AIDL gralloc present"
+
+# Migrating from any prior renderer (stock SwiftShader waydroid, or an older
+# NVIDIA-stack install) leaves each app's compiled-shader cache on disk. That
+# cache is meaningless to the new renderer, and libhwui's BlobCache::clean()
+# divides by its own entry count when evicting — against the resulting
+# empty/inconsistent cache that's a division by zero (SIGFPE), which took
+# down com.android.systemui crash-looping on real migrations (issue #13).
+# code_cache is a pure recompilation cache with no user data in it, so it is
+# always safe to clear and Android regenerates it on demand; do this
+# unconditionally on every run, the same way the gralloc-override cleanup
+# above runs unconditionally, rather than trying to detect "was this a real
+# migration". Covers every installed app (not just systemui, which is only
+# the one that happens to crash loudly and early) and both storage classes
+# Android uses (user_de = device-encrypted, available before user unlock,
+# what systemui itself uses; user = credential-encrypted, most apps).
+ANDROID_DATA=$(eval echo "~$SUDO_USER")/.local/share/waydroid/data
+if [ -d "$ANDROID_DATA" ]; then
+    echo "== clearing stale per-app shader caches (safe: recompiled on demand)"
+    shopt -s nullglob
+    caches=("$ANDROID_DATA"/user_de/*/*/code_cache "$ANDROID_DATA"/user/*/*/code_cache)
+    shopt -u nullglob
+    if [ "${#caches[@]}" -gt 0 ]; then
+        rm -rf -- "${caches[@]}"
+        echo "   removed ${#caches[@]} code_cache director$([ "${#caches[@]}" = 1 ] && echo y || echo ies)"
+    fi
+fi
 
 echo "== installing guest driver stack into $NV_GUEST"
 install -d -m 0755 "$NV_GUEST"
@@ -151,7 +202,7 @@ for rel in "${GUEST_BINS[@]}"; do
 done
 
 echo "== writing waydroid.cfg properties"
-REFRESH="$REFRESH" NVNODE="$NVNODE" python3 - "$CFG" <<'EOF'
+REFRESH="$REFRESH" NVNODE="$NVNODE" VENUS_SOCK="$VENUS_SOCK" python3 - "$CFG" <<'EOF'
 import configparser, os, sys
 cfg_path = sys.argv[1]
 cp = configparser.ConfigParser()
@@ -197,7 +248,9 @@ cp.set("waydroid", "suspend_action", "none")
 cp.set("waydroid", "drm_device", os.environ["NVNODE"])
 # Enables NVIDIA Venus mode in our waydroid patch: strict (non-optional)
 # bind-mounts at container start + a socket preflight at session start.
-cp.set("waydroid", "nvidia_venus_socket", "/run/waydroid-venus/venus.sock")
+# This is the desktop user's own private runtime dir (see wd-venus.service),
+# not a shared system path, so no other local user can reach the socket.
+cp.set("waydroid", "nvidia_venus_socket", os.environ["VENUS_SOCK"])
 # Select the path-preserving dual-ABI mount layout under nv/guest.
 cp.set("waydroid", "nvidia_guest_layout", "2")
 with open(cfg_path, "w") as f:

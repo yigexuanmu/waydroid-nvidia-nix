@@ -1,5 +1,5 @@
 diff --git a/server/render_context.c b/server/render_context.c
-index 718b1b5..d58a6fb 100644
+index 718b1b52..d58a6fbd 100644
 --- a/server/render_context.c
 +++ b/server/render_context.c
 @@ -62,8 +62,53 @@ render_context_dispatch_submit_fence(struct render_context *ctx,
@@ -68,7 +68,7 @@ index 718b1b5..d58a6fb 100644
     };
  
 diff --git a/server/render_protocol.h b/server/render_protocol.h
-index ed74a1e..a172b75 100644
+index ed74a1ec..a172b752 100644
 --- a/server/render_protocol.h
 +++ b/server/render_protocol.h
 @@ -40,6 +40,8 @@ enum render_context_op {
@@ -136,7 +136,7 @@ index ed74a1e..a172b75 100644
  
  #ifdef __APPLE__
 diff --git a/server/render_state.c b/server/render_state.c
-index e90a289..58b1545 100644
+index e90a289d..58b15458 100644
 --- a/server/render_state.c
 +++ b/server/render_state.c
 @@ -224,6 +224,35 @@ render_state_export_fence(uint32_t ctx_id, uint32_t ring_idx, uint64_t fence_id,
@@ -176,7 +176,7 @@ index e90a289..58b1545 100644
  render_state_create_resource(uint32_t ctx_id,
                               uint32_t res_id,
 diff --git a/server/render_state.h b/server/render_state.h
-index e271986..819f4e3 100644
+index e2719860..819f4e3b 100644
 --- a/server/render_state.h
 +++ b/server/render_state.h
 @@ -36,6 +36,26 @@ render_state_submit_fence(uint32_t ctx_id,
@@ -207,7 +207,7 @@ index e271986..819f4e3 100644
  render_state_create_resource(uint32_t ctx_id,
                               uint32_t res_id,
 diff --git a/src/proxy/proxy_context.c b/src/proxy/proxy_context.c
-index b718ef2..1a5c533 100644
+index b718ef25..1a5c533a 100644
 --- a/src/proxy/proxy_context.c
 +++ b/src/proxy/proxy_context.c
 @@ -291,10 +291,11 @@ proxy_context_export_fence(struct virgl_context *base,
@@ -327,10 +327,10 @@ index b718ef2..1a5c533 100644
  
  static bool
 diff --git a/src/venus/vkr_context.c b/src/venus/vkr_context.c
-index c170bd3..9b8992c 100644
+index c170bd32..3c122844 100644
 --- a/src/venus/vkr_context.c
 +++ b/src/venus/vkr_context.c
-@@ -5,10 +5,19 @@
+@@ -5,10 +5,20 @@
  
  #include "vkr_context.h"
  
@@ -339,6 +339,7 @@ index c170bd3..9b8992c 100644
 +#include <sys/ioctl.h>
  #include <sys/mman.h>
  #include <sys/types.h>
++#include <time.h>
  #include <unistd.h>
  
 +/* the bundled UAPI header (src/drm/drm-uapi) — NOT <drm/drm.h>: the one-ioctl
@@ -350,7 +351,7 @@ index c170bd3..9b8992c 100644
  #include "util/anon_file.h"
  #include "venus-protocol/vn_protocol_renderer_dispatches.h"
  
-@@ -136,10 +145,11 @@ vkr_context_init_proc_table(struct vkr_context *ctx)
+@@ -136,10 +146,11 @@ vkr_context_init_proc_table(struct vkr_context *ctx)
  }
  
  bool
@@ -366,7 +367,7 @@ index c170bd3..9b8992c 100644
  {
     /* retire fence on cpu timeline directly */
     if (ring_idx == 0) {
-@@ -155,11 +165,309 @@ vkr_context_submit_fence(struct vkr_context *ctx,
+@@ -155,11 +166,367 @@ vkr_context_submit_fence(struct vkr_context *ctx,
     /* always merge fences */
     assert(!(flags & ~VIRGL_RENDERER_FENCE_FLAG_MERGEABLE));
     flags = VIRGL_RENDERER_FENCE_FLAG_MERGEABLE;
@@ -449,11 +450,30 @@ index c170bd3..9b8992c 100644
 +   }
 +
 +   if (!imported) {
-+      /* fd < 0 = fence already signaled; also the failure fallback so the
-+       * client never stalls on WAIT_AVAILABLE
++      /* fd < 0 is the benign, expected case: the exporter's own convention
++       * for "already signaled" (see vn_create_sync_file's `*out_fd >= -1`
++       * check on the guest side) — nothing was ever going to be imported.
++       *
++       * fd >= 0 here means a real ioctl failure above (a genuine import
++       * error, not "already done"). We still force-signal rather than
++       * leave the timeline point stuck, because nothing currently gives
++       * this function a way to fail the guest's submission instead — doing
++       * that would need to propagate an error back through the async
++       * worker-thread call sites (see the callers of this function), which
++       * is a bigger change than this fix. Signaling on a real failure means
++       * a consumer can observe "this point is done" for GPU work that
++       * genuinely is not — the fence stops being a correctness guarantee
++       * for that one point, and a frame using it could show stale/partial
++       * content. This is a real, known trade-off (hang forever vs. lie
++       * about completion), not an oversight; it is logged distinctly and
++       * loudly from the fd < 0 fast path specifically so it stays visible
++       * instead of silently blending into ordinary timeline traffic.
 +       */
 +      if (sync_file_fd >= 0)
-+         vkr_log("timeline: import at point %" PRIu64 " failed, signaling",
++         vkr_log("timeline: WARNING import at point %" PRIu64 " genuinely "
++                 "failed (not an already-signaled fd); force-signaling to "
++                 "avoid a permanent guest hang, but this point does NOT "
++                 "reflect real GPU completion",
 +                 timeline_point);
 +      const uint64_t point = timeline_point;
 +      const uint32_t handle = ctx->timeline.handle;
@@ -645,14 +665,53 @@ index c170bd3..9b8992c 100644
 +                                     uint64_t semaphore_id,
 +                                     int sync_file_fd)
 +{
-+   struct vkr_device *dev = vkr_context_get_object(ctx, device_id);
-+   struct vkr_semaphore *sem = vkr_context_get_object(ctx, semaphore_id);
-+   if (!dev || dev->base.type != VK_OBJECT_TYPE_DEVICE || !sem ||
-+       sem->base.type != VK_OBJECT_TYPE_SEMAPHORE) {
-+      vkr_log("import_semaphore: bad object ids dev %" PRIu64 " sem %" PRIu64,
-+              device_id, semaphore_id);
-+      close(sync_file_fd);
-+      return -EINVAL;
++   /* VCMD_SEMAPHORE_IMPORT_SYNC_FD is a direct, synchronous vtest command:
++    * the moment its bytes are off the wire, this does an immediate object-
++    * table lookup. But the device/semaphore it names were (almost always)
++    * created by an EARLIER venus command the same guest thread already
++    * submitted -- and venus command buffers are dispatched asynchronously
++    * off a shared ring (vn_ring_submit_locked() et al.), not synchronously
++    * with the wire write that queued them. So a guest that creates a
++    * semaphore and immediately imports a fence into it can win this command
++    * ahead of the ring's own dispatcher actually creating the object,
++    * purely from these two paths running at different speeds -- confirmed
++    * live under sustained load (TikTok's video feed): "import_semaphore:
++    * bad object ids" firing on essentially every attempt, with monotonically
++    * increasing object ids, i.e. the ring never got the chance to catch up
++    * before we gave up on it.
++    *
++    * This is a genuine, short-lived race, not a real missing object: the
++    * object will exist within microseconds to low milliseconds once the
++    * ring dispatcher gets to it. Retry a few times with a short backoff
++    * before concluding the id is actually bad. Each render_server worker
++    * process (render-server-worker=process, what this project actually
++    * builds with) owns exactly one context, so blocking this thread briefly
++    * costs nothing globally -- it only delays this one fence import, and
++    * only for as long as it genuinely takes the ring to catch up. */
++   struct vkr_device *dev = NULL;
++   struct vkr_semaphore *sem = NULL;
++   /* total ~25.5ms worst case -- comfortably above what a ring dispatch
++    * delay should ever look like under real load, but still bounded */
++   static const long retry_delays_ns[] = { 100000L,  200000L,  400000L,
++                                           800000L,  1600000L, 3200000L,
++                                           6400000L, 6400000L, 6400000L };
++   long waited_ns = 0;
++   for (unsigned attempt = 0;; attempt++) {
++      dev = vkr_context_get_object(ctx, device_id);
++      sem = vkr_context_get_object(ctx, semaphore_id);
++      if (dev && dev->base.type == VK_OBJECT_TYPE_DEVICE && sem &&
++          sem->base.type == VK_OBJECT_TYPE_SEMAPHORE)
++         break;
++      if (attempt >= ARRAY_SIZE(retry_delays_ns)) {
++         vkr_log("import_semaphore: bad object ids dev %" PRIu64 " sem %" PRIu64
++                 " (gave up after %u retries, ~%.1fms)",
++                 device_id, semaphore_id, attempt, waited_ns / 1e6);
++         close(sync_file_fd);
++         return -EINVAL;
++      }
++      struct timespec ts = { .tv_sec = 0, .tv_nsec = retry_delays_ns[attempt] };
++      nanosleep(&ts, NULL);
++      waited_ns += retry_delays_ns[attempt];
 +   }
 +
 +   const VkImportSemaphoreFdInfoKHR info = {
@@ -677,7 +736,7 @@ index c170bd3..9b8992c 100644
  int
  vkr_context_export_fence(struct vkr_context *ctx,
                           uint32_t ring_idx,
-@@ -644,6 +952,25 @@ vkr_context_destroy(struct vkr_context *ctx)
+@@ -644,6 +1011,25 @@ vkr_context_destroy(struct vkr_context *ctx)
  
     vkr_context_wait_ring_fini(ctx);
  
@@ -703,7 +762,7 @@ index c170bd3..9b8992c 100644
     if (ctx->ring_monitor.started)
        vkr_context_ring_monitor_fini(ctx);
  
-@@ -727,6 +1054,11 @@ vkr_context_create(uint32_t ctx_id,
+@@ -727,6 +1113,11 @@ vkr_context_create(uint32_t ctx_id,
     if (!vkr_context_wait_ring_init(ctx))
        goto err_ctx_wait_ring_init;
  
@@ -716,7 +775,7 @@ index c170bd3..9b8992c 100644
        goto err_ctx_object_mutex;
  
 diff --git a/src/venus/vkr_context.h b/src/venus/vkr_context.h
-index 7ba72eb..ce1a850 100644
+index 7ba72eb8..ce1a8507 100644
 --- a/src/venus/vkr_context.h
 +++ b/src/venus/vkr_context.h
 @@ -98,6 +98,50 @@ struct vkr_context {
@@ -812,7 +871,7 @@ index 7ba72eb..ce1a850 100644
  vkr_context_submit_cmd(struct vkr_context *ctx, const void *buffer, size_t size);
  
 diff --git a/src/venus/vkr_device.c b/src/venus/vkr_device.c
-index 3e943bf..3880c3e 100644
+index 3e943bfd..3880c3ec 100644
 --- a/src/venus/vkr_device.c
 +++ b/src/venus/vkr_device.c
 @@ -108,6 +108,8 @@ vkr_dispatch_vkCreateDevice(struct vn_dispatch_context *dispatch,
@@ -874,7 +933,7 @@ index 3e943bf..3880c3e 100644
        free(dev);
        return;
 diff --git a/src/venus/vkr_queue.c b/src/venus/vkr_queue.c
-index b7242e0..4287de8 100644
+index b7242e06..4287de8e 100644
 --- a/src/venus/vkr_queue.c
 +++ b/src/venus/vkr_queue.c
 @@ -79,7 +79,8 @@ bool
@@ -915,7 +974,7 @@ index b7242e0..4287de8 100644
     list_addtail(&sync->head, &queue->sync_thread.syncs);
     cnd_signal(&queue->sync_thread.cond);
 diff --git a/src/venus/vkr_queue.h b/src/venus/vkr_queue.h
-index 5246a5a..9c802ad 100644
+index 5246a5a2..9c802ad8 100644
 --- a/src/venus/vkr_queue.h
 +++ b/src/venus/vkr_queue.h
 @@ -95,10 +95,14 @@ vkr_queue_destroy(struct vkr_context *ctx, struct vkr_queue *queue);
@@ -935,7 +994,7 @@ index 5246a5a..9c802ad 100644
  
  #endif /* VKR_QUEUE_H */
 diff --git a/src/venus/vkr_renderer.c b/src/venus/vkr_renderer.c
-index d7eaab3..704fe91 100644
+index d7eaab36..704fe916 100644
 --- a/src/venus/vkr_renderer.c
 +++ b/src/venus/vkr_renderer.c
 @@ -183,6 +183,53 @@ vkr_renderer_submit_fence(uint32_t ctx_id,
@@ -993,7 +1052,7 @@ index d7eaab3..704fe91 100644
  vkr_renderer_create_resource(uint32_t ctx_id,
                               uint32_t res_id,
 diff --git a/src/venus/vkr_renderer.h b/src/venus/vkr_renderer.h
-index b606ce6..5ff81b2 100644
+index b606ce62..5ff81b2d 100644
 --- a/src/venus/vkr_renderer.h
 +++ b/src/venus/vkr_renderer.h
 @@ -57,6 +57,29 @@ vkr_renderer_submit_fence(uint32_t ctx_id,
@@ -1027,7 +1086,7 @@ index b606ce6..5ff81b2 100644
  vkr_renderer_create_resource(uint32_t ctx_id,
                               uint32_t res_id,
 diff --git a/src/virgl_context.h b/src/virgl_context.h
-index 5db5cc3..7397b97 100644
+index 5db5cc30..7397b975 100644
 --- a/src/virgl_context.h
 +++ b/src/virgl_context.h
 @@ -140,6 +140,34 @@ struct virgl_context {
@@ -1066,7 +1125,7 @@ index 5db5cc3..7397b97 100644
     int (*get_device_fd)(struct virgl_context *ctx);
  
 diff --git a/src/virglrenderer.c b/src/virglrenderer.c
-index c82b916..cef4107 100644
+index c82b916d..cef4107d 100644
 --- a/src/virglrenderer.c
 +++ b/src/virglrenderer.c
 @@ -449,6 +449,54 @@ int virgl_renderer_context_export_fence(uint32_t ctx_id,
@@ -1125,7 +1184,7 @@ index c82b916..cef4107 100644
  {
     TRACE_FUNC();
 diff --git a/src/virglrenderer.h b/src/virglrenderer.h
-index f59dd9a..6d36e31 100644
+index f59dd9a3..6d36e313 100644
 --- a/src/virglrenderer.h
 +++ b/src/virglrenderer.h
 @@ -467,6 +467,40 @@ VIRGL_EXPORT int virgl_renderer_context_export_fence(uint32_t ctx_id,
@@ -1170,7 +1229,7 @@ index f59dd9a..6d36e31 100644
  VIRGL_EXPORT int virgl_renderer_context_get_poll_fd(uint32_t ctx_id);
  
 diff --git a/vtest/meson.build b/vtest/meson.build
-index c2bd278..387084f 100644
+index c2bd2782..387084fe 100644
 --- a/vtest/meson.build
 +++ b/vtest/meson.build
 @@ -29,6 +29,8 @@ vtest_sources = [
@@ -1183,7 +1242,7 @@ index c2bd278..387084f 100644
     'vtest.h'
  ]
 diff --git a/vtest/vtest.h b/vtest/vtest.h
-index fa74075..5969851 100644
+index fa74075a..59698511 100644
 --- a/vtest/vtest.h
 +++ b/vtest/vtest.h
 @@ -56,6 +56,14 @@ void vtest_poll_context(struct vtest_context *ctx);
@@ -1210,7 +1269,7 @@ index fa74075..5969851 100644
  int vtest_submit_cmd2(uint32_t length_dw);
  
 diff --git a/vtest/vtest_protocol.h b/vtest/vtest_protocol.h
-index 3a7381f..95b0b0d 100644
+index 3a7381f7..95b0b0d1 100644
 --- a/vtest/vtest_protocol.h
 +++ b/vtest/vtest_protocol.h
 @@ -98,6 +98,22 @@
@@ -1279,10 +1338,18 @@ index 3a7381f..95b0b0d 100644
     VCMD_SUBMIT_CMD2_FLAG_RING_IDX = 1 << 0,
     VCMD_SUBMIT_CMD2_FLAG_IN_FENCE_FD = 1 << 1,
 diff --git a/vtest/vtest_renderer.c b/vtest/vtest_renderer.c
-index f3212ad..3a9cbbb 100644
+index f3212ad7..d24012cf 100644
 --- a/vtest/vtest_renderer.c
 +++ b/vtest/vtest_renderer.c
-@@ -53,6 +53,7 @@
+@@ -32,6 +32,7 @@
+ #include <time.h>
+ #include <unistd.h>
+ #include <fcntl.h>
++#include <inttypes.h>
+ #include <limits.h>
+ #include <c11/threads.h>
+ 
+@@ -53,6 +54,7 @@
  
  #include "vtest.h"
  #include "vtest_shm.h"
@@ -1290,7 +1357,21 @@ index f3212ad..3a9cbbb 100644
  #include "vtest_protocol.h"
  #include "threadpool.h"
  
-@@ -865,6 +866,13 @@ static struct vtest_context *vtest_get_current_context(void)
+@@ -160,6 +162,13 @@ struct vtest_context {
+    struct util_hash_table *resource_table;
+    struct util_hash_table *sync_table;
+ 
++   /* Rolling one-second allocation-rate window for VCMD_RESOURCE_ALLOC_GPU;
++    * see the cap check in vtest_resource_alloc_gpu. Bytes handed out since
++    * window_start_ns; the window resets (not decays) once a request is seen
++    * more than a second after it started. */
++   uint64_t gpu_alloc_window_bytes;
++   uint64_t gpu_alloc_window_start_ns;
++
+    struct vtest_timeline timelines[VTEST_MAX_TIMELINE_COUNT];
+ 
+    struct list_head sync_waits;
+@@ -865,6 +874,13 @@ static struct vtest_context *vtest_get_current_context(void)
     return renderer.current_context;
  }
  
@@ -1304,7 +1385,7 @@ index f3212ad..3a9cbbb 100644
  int vtest_ping_protocol_version(UNUSED uint32_t length_dw)
  {
     struct vtest_context *ctx = vtest_get_current_context();
-@@ -970,6 +978,20 @@ int vtest_get_param(UNUSED uint32_t length_dw)
+@@ -970,6 +986,20 @@ int vtest_get_param(UNUSED uint32_t length_dw)
        resp[0] = true;
        resp[1] = !!(renderer.ctx_flags & VIRGL_RENDERER_VENUS);
        break;
@@ -1325,7 +1406,7 @@ index f3212ad..3a9cbbb 100644
     case VCMD_PARAM_HAS_TIMELINE_SYNCOBJ: {
  #ifdef ENABLE_DRM
        int fd = virgl_renderer_get_dev_fd(ctx->ctx_id);
-@@ -2238,7 +2260,8 @@ struct drm_virtgpu_execbuffer_syncobj {
+@@ -2238,7 +2268,8 @@ struct drm_virtgpu_execbuffer_syncobj {
  static int vtest_submit_cmd2_batch(struct vtest_context *ctx,
                                     const struct vcmd_submit_cmd2_batch *batch,
                                     const uint32_t *cmds,
@@ -1335,7 +1416,7 @@ index f3212ad..3a9cbbb 100644
  {
     struct vtest_timeline_submit *submit = NULL;
     struct drm_virtgpu_execbuffer_syncobj *in_syncobj = NULL, *out_syncobj = NULL;
-@@ -2361,10 +2384,18 @@ static int vtest_submit_cmd2_batch(struct vtest_context *ctx,
+@@ -2361,10 +2392,18 @@ static int vtest_submit_cmd2_batch(struct vtest_context *ctx,
        uint64_t fence_id = (uintptr_t)submit;
  
        submit->timeline = timeline;
@@ -1358,7 +1439,7 @@ index f3212ad..3a9cbbb 100644
        if (ret) {
           vtest_free_timeline_submit(submit);
           goto out;
-@@ -2439,6 +2470,7 @@ int vtest_resource_import_blob(uint32_t length_dw)
+@@ -2439,6 +2478,7 @@ int vtest_resource_import_blob(uint32_t length_dw)
     /* venus imports with size 0 when only querying memory properties (see
      * vn_get_memory_dma_buf_properties); derive the size from the dmabuf
      */
@@ -1366,7 +1447,7 @@ index f3212ad..3a9cbbb 100644
     if (!size) {
        const off_t seek_size = lseek(fd, 0, SEEK_END);
        if (seek_size < 0) {
-@@ -2491,6 +2523,64 @@ int vtest_resource_import_blob(uint32_t length_dw)
+@@ -2491,6 +2531,129 @@ int vtest_resource_import_blob(uint32_t length_dw)
     return vtest_block_write(ctx->out_fd, resp_buf, sizeof(resp_buf)) >= 0 ? 0 : -1;
  }
  
@@ -1406,6 +1487,71 @@ index f3212ad..3a9cbbb 100644
 +   if (ret)
 +      report_failed_call("vtest_gpu_alloc", ret);
 +
++   /* Per-context allocation RATE limit. The width/height clamp above only
++    * bounds a single call (up to ~4 GiB for a 4-byte-per-pixel 32768x32768
++    * image); with no further check a client could repeat
++    * VCMD_RESOURCE_ALLOC_GPU indefinitely and exhaust host VRAM (or the
++    * udmabuf-backed CPU path).
++    *
++    * First attempt at this fix used a lifetime-cumulative cap per context
++    * instead of a rate limit, and it was wrong: in the field, one
++    * long-lived context legitimately accumulated well past a 2 GiB
++    * lifetime total from perfectly ordinary use (scrolling an app store's
++    * icon grid, opening a few apps over a session) and then permanently
++    * rejected every further allocation for the rest of that context's
++    * life, with no way to recover short of restarting the whole renderer —
++    * i.e. it took down normal use, not just abuse. A cumulative cap can
++    * only ever be correct if contexts are actually short-lived, and this
++    * one evidently isn't.
++    *
++    * A rolling one-second window is the right tool for the actual threat
++    * (a fast, repeated-request flood), because it recovers on its own:
++    * legitimate UI work is paced by user interaction and decode/compose
++    * throughput, not by how fast this loop can spin, so it will not
++    * plausibly need anywhere near the per-second budget below, while a
++    * hostile or buggy client gets capped to that budget every second
++    * instead of being let through until VRAM runs out. This command hands
++    * the buffer's dma_buf fd straight to the guest and drops our own
++    * handle (see vtest_gpu_alloc_image's comment: the export keeps the
++    * memory alive, not our VkImage/VkDeviceMemory), so there is no
++    * notification path back to us when the guest eventually frees a given
++    * buffer — real reclamation still happens correctly and independently
++    * via the kernel's own dma_buf refcounting; this limit only ever
++    * throttles the rate new allocations are handed out at. Override the
++    * per-second budget via VTEST_GPU_ALLOC_MB_PER_SEC for unusual
++    * workloads. */
++   if (ret == 0) {
++      static uint64_t budget_bytes;
++      if (!budget_bytes) {
++         const char *env = getenv("VTEST_GPU_ALLOC_MB_PER_SEC");
++         long mb = env ? strtol(env, NULL, 10) : 0;
++         budget_bytes = (mb > 0 ? (uint64_t)mb : 512ull) * 1024 * 1024;
++      }
++      struct timespec ts;
++      clock_gettime(CLOCK_MONOTONIC, &ts);
++      const uint64_t now_ns = (uint64_t)ts.tv_sec * 1000000000ull + (uint64_t)ts.tv_nsec;
++      if (now_ns - ctx->gpu_alloc_window_start_ns > 1000000000ull) {
++         ctx->gpu_alloc_window_start_ns = now_ns;
++         ctx->gpu_alloc_window_bytes = 0;
++      }
++      if (ctx->gpu_alloc_window_bytes + size > budget_bytes) {
++         fprintf(stderr, "vtest: context %d: VCMD_RESOURCE_ALLOC_GPU rate limit hit "
++                 "(%" PRIu64 " + %" PRIu64 " > %" PRIu64 " bytes/s); rejecting, "
++                 "retries next second\n",
++                 ctx->ctx_id, ctx->gpu_alloc_window_bytes, size, budget_bytes);
++         if (fd >= 0) {
++            close(fd);
++            fd = -1;
++         }
++         ret = -ENOSPC;
++         stride = 0;
++         modifier = 0;
++         size = 0;
++      } else {
++         ctx->gpu_alloc_window_bytes += size;
++      }
++   }
++
 +   memset(resp_buf, 0, sizeof(resp_buf));
 +   resp_buf[VTEST_CMD_LEN] = VCMD_RESOURCE_ALLOC_GPU_RESP_SIZE;
 +   resp_buf[VTEST_CMD_ID] = VCMD_RESOURCE_ALLOC_GPU;
@@ -1431,7 +1577,7 @@ index f3212ad..3a9cbbb 100644
  int vtest_sync_export_sync_file(uint32_t length_dw)
  {
     struct vtest_context *ctx = vtest_get_current_context();
-@@ -2560,7 +2650,7 @@ int vtest_sync_export_sync_file(uint32_t length_dw)
+@@ -2560,7 +2723,7 @@ int vtest_sync_export_sync_file(uint32_t length_dw)
     return ret >= 0 ? 0 : ret;
  }
  
@@ -1440,7 +1586,7 @@ index f3212ad..3a9cbbb 100644
  {
     struct vtest_context *ctx = vtest_get_current_context();
     uint32_t *submit_cmd2_buf;
-@@ -2611,7 +2701,9 @@ int vtest_submit_cmd2(uint32_t length_dw)
+@@ -2611,7 +2774,9 @@ int vtest_submit_cmd2(uint32_t length_dw)
           return -EINVAL;
        }
  
@@ -1451,7 +1597,7 @@ index f3212ad..3a9cbbb 100644
        if (ret) {
           free(submit_cmd2_buf);
           return ret;
-@@ -2623,6 +2715,92 @@ int vtest_submit_cmd2(uint32_t length_dw)
+@@ -2623,6 +2788,92 @@ int vtest_submit_cmd2(uint32_t length_dw)
     return 0;
  }
  
@@ -1545,7 +1691,7 @@ index f3212ad..3a9cbbb 100644
  
  int vtest_drm_sync_create(UNUSED uint32_t length_dw)
 diff --git a/vtest/vtest_server.c b/vtest/vtest_server.c
-index dcf1b19..94584fe 100644
+index dcf1b192..94584fe4 100644
 --- a/vtest/vtest_server.c
 +++ b/vtest/vtest_server.c
 @@ -33,12 +33,16 @@

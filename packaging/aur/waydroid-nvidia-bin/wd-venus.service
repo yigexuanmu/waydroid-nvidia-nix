@@ -2,9 +2,23 @@
 Description=Venus vtest render server for waydroid-nvidia
 
 [Service]
+# Private per-user socket directory: systemd creates $XDG_RUNTIME_DIR/waydroid-venus
+# (RuntimeDirectory's own default mode is 0755, not restrictive by itself), but
+# $XDG_RUNTIME_DIR itself (/run/user/<uid>) is created by logind at mode 0700, owned
+# by this unit's user — that parent is what actually blocks every other local
+# account from ever traversing down to this subdirectory at all; root still can,
+# since root bypasses DAC checks, which is what lets it set up the container
+# bind-mount. This replaces a shared, root-owned, world-writable /run/waydroid-venus:
+# that directory let ANY local user on the machine find and connect to this socket
+# directly, not just the intended waydroid container, and a process that can connect
+# can drive the GPU through it. The socket file itself is still made
+# world-connectable below (arbitrary uids run inside the container), but now only a
+# process that can already resolve this path — i.e. one waydroid-nvidia bind-mounts
+# into its own container, or root — can even find it.
+RuntimeDirectory=waydroid-venus
 Environment=RENDER_SERVER_EXEC_PATH=/usr/lib/waydroid-nvidia/virgl_render_server
 Environment=LD_LIBRARY_PATH=/usr/lib/waydroid-nvidia
-ExecStart=/usr/lib/waydroid-nvidia/virgl_test_server --venus --multi-clients --socket-path /run/waydroid-venus/venus.sock
+ExecStart=/usr/lib/waydroid-nvidia/virgl_test_server --venus --multi-clients --socket-path %t/waydroid-venus/venus.sock
 Restart=on-failure
 RestartSec=1
 
