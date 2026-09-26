@@ -506,18 +506,29 @@ vtest_gpu_alloc_cpu(uint32_t width, uint32_t height, uint32_t drm_format,
 
    if (drm_format == VTEST_FORMAT_NV12) {
       stride = (uint32_t)ALLOC_ALIGN((uint64_t)width, 256);
-      /* Biplanar 4:2:0: Y plane followed by an interleaved UV plane at the
+      /* Biplanar 4:2:0: a Y plane followed by an interleaved UV plane on the
        * same row stride. Round the UV plane up with (height + 1) / 2 rather
-       * than height / 2 -- minigbm's biplanar_yuv_420_layout() rounds up and
-       * recomputes both planes' offsets from this stride alone, so a
-       * truncated UV plane under-allocates for odd heights.
-       * (upstream PR #20, fixes #16) */
+       * than height / 2 -- minigbm sizes every plane via
+       * drv_size_from_format() = stride * drv_height_from_format(), and the
+       * latter is DIV_ROUND_UP(height, vertical_subsampling), so minigbm
+       * really does hand us ceil(height/2) UV rows and recomputes both
+       * planes' offsets from this stride alone. A truncated UV plane
+       * under-allocates for odd heights. (upstream PR #20, fixes #16)
+       *
+       * P010 below is minigbm's separate biplanar_yuv_p010_layout, but its
+       * vertical_subsampling is {1, 2} just like NV12's, so the identical
+       * rounding rule applies.
+       */
       size = ALLOC_ALIGN((uint64_t)stride * height +
                              (uint64_t)stride * ((height + 1) / 2),
                           4096);
    } else if (drm_format == VTEST_FORMAT_P010) {
+      /* bytes_per_pixel {2, 4} with 2:1 horizontal subsampling lands the UV
+       * plane on the same width*2 row stride as the Y plane. */
       stride = (uint32_t)ALLOC_ALIGN((uint64_t)width * 2, 256);
-      size = ALLOC_ALIGN((uint64_t)stride * height * 3 / 2, 4096);
+      size = ALLOC_ALIGN((uint64_t)stride * height +
+                             (uint64_t)stride * ((height + 1) / 2),
+                          4096);
    } else {
       const uint32_t bpp = drm_format_bpp(drm_format);
       stride = (uint32_t)ALLOC_ALIGN((uint64_t)width * bpp, 256);

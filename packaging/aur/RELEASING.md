@@ -34,8 +34,11 @@ runner host).
    `src/`/`pkg/` and stray dirs break naive `cp *` chains), commit.
 
 4. **AUR**: `makepkg --printsrcinfo > .SRCINFO`; copy PKGBUILD, .SRCINFO and
-   the local source files (service, tmpfiles, setup, install, udev rules) to
+   the local source files (service, setup, install, udev rules) to
    the AUR clone at `~/repos/waydroid-nvidia-bin-aur`, commit, push.
+   Regenerating .SRCINFO matters: it carries a `source =` list and a
+   `sha256sums` block that must match PKGBUILD exactly, so adding or removing
+   a local source file silently desynchronizes it until you rerun the command.
 
 Verify any asset:
 ```sh
