@@ -42,6 +42,12 @@ GL 走 ANGLE，ASTC 纹理由 compute shader 模拟，帧同步完全在 GPU 侧
 由 `wd-venus.service` 的 `RuntimeDirectory=waydroid-venus` 在每次登录时自动创建。
 旧的 `/run/waydroid-venus/` 不再使用，之前手工创建的同名目录可以删掉。
 
+**本分支自行修掉的一处（不来自上游 PR）**：P010（10-bit HDR）在 CPU 回退路径上的
+双平面尺寸计算与 NV12 犯了同一个错 —— `stride * height * 3 / 2` 在奇数高度上把 UV
+平面算小了（对齐后整整少一页 4096 字节，会越界写）。已按 minigbm 实际的布局规则
+（`drv_size_from_format() = stride * DIV_ROUND_UP(height, vertical_subsampling)`）
+改成与 NV12 相同的向上取整公式。偶数高度（如 1080p）原本不受影响，所以一直没暴露。
+
 ## 前置要求
 
 - **NVIDIA 开源内核模块**（`nvidia-open`/`nvidia-open-dkms`），对应 **Turing（RTX 20 / GTX 16）或更新** 的显卡

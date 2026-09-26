@@ -339,6 +339,86 @@ jobs:
           fi
           echo "waydroid patch and dual-ABI mounts validated at $WAYDROID_SHA"
 
+  # This job exists because two real breaks shipped unnoticed, and neither
+  # upstream job builds the flake: removing waydroid-venus.tmpfiles left
+  # pkgs/waydroid-nvidia-full copying a file that no longer existed, and the
+  # NixOS module was still wiring the retired shared socket path. Both were
+  # caught only by building the packages for real.
+  flake-packages:
+    name: nix flake packages (${{ matrix.pkg }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        pkg:
+          - virglrenderer-nvidia
+          - waydroid-nvidia
+          - guest-nvidia
+          - guest-prebuilts-nvidia
+          - waydroid-nvidia-full
+    steps:
+      - uses: actions/checkout@v4
+      - name: Nix (deterministic)
+        uses: DeterminateSystems/nix-installer-action@main
+        with:
+          extra-conf: |
+            keep-outputs = 5
+            gc-auto = true
+            auto-optimise-store = true
+      - name: Cache nix store
+        uses: actions/cache@v4
+        with:
+          path: /home/runner/.cache/nix
+          key: nix-x86_64-linux-${{ hashFiles('flake.nix', 'pkgs/**', 'src/**', 'modules/**', 'patches/**') }}
+          restore-keys: nix-x86_64-linux-
+      - name: Build
+        run: nix build ".#${{ matrix.pkg }}"
+      - name: Verify the packaged unit still uses the private socket
+        if: matrix.pkg == 'waydroid-nvidia-full'
+        run: |
+          set -euo pipefail
+          out=$(nix eval --raw '.#packages.x86_64-linux.waydroid-nvidia-full')
+          unit="$out/share/systemd/user/wd-venus.service"
+          test -f "$unit"
+          grep -q '^RuntimeDirectory=waydroid-venus$' "$unit" \
+            || { echo "::error::wd-venus.service lost RuntimeDirectory="; cat "$unit"; exit 1; }
+          grep -q -- '--socket-path %t/waydroid-venus/venus.sock' "$unit" \
+            || { echo "::error::socket path is not the private %t path"; grep socket-path "$unit"; exit 1; }
+          if grep -q -- '/run/waydroid-venus/venus.sock' "$unit"; then
+            echo "::error::the retired shared socket path is back"
+            exit 1
+          fi
+          if [ -e "$out/etc/tmpfiles.d/waydroid-venus.conf" ]; then
+            echo "::error::the retired waydroid-venus tmpfiles unit is packaged again"
+            exit 1
+          fi
+          echo "packaged unit verified: private socket, RuntimeDirectory=, no tmpfiles unit"
+      - name: AUR PKGBUILD and .SRCINFO are in sync
+        if: matrix.pkg == 'waydroid-nvidia-full'
+        run: |
+          set -euo pipefail
+          d=packaging/aur/waydroid-nvidia-bin
+          python3 - "$d" <<'PY'
+          import hashlib, pathlib, re, sys
+          d = pathlib.Path(sys.argv[1])
+          src = (d / '.SRCINFO').read_text()
+          pkb = (d / 'PKGBUILD').read_text()
+          si_src = re.findall(r'^\tsource = (.+)$', src, re.M)
+          si_hash = re.findall(r'sha256sums = ([a-f0-9]{64})', src)
+          pkb_hash = re.findall(r"'([a-f0-9]{64})'", pkb)
+          if len(si_src) != len(si_hash):
+              sys.exit(f".SRCINFO source/sha256sums count mismatch: {len(si_src)} vs {len(si_hash)}")
+          if si_hash != pkb_hash:
+              sys.exit(f".SRCINFO sha256sums out of sync with PKGBUILD ({len(si_hash)} vs {len(pkb_hash)})")
+          for s in si_src:
+              if 'http' in s:
+                  continue
+              got = hashlib.sha256((d / s).read_bytes()).hexdigest()
+              if got != si_hash[si_src.index(s)]:
+                  sys.exit(f"{s}: .SRCINFO records {si_hash[si_src.index(s)][:12]}.. but the file is {got[:12]}..")
+          print(f"OK: {len(si_src)} sources; hashes match the PKGBUILD and the file bytes")
+          PY
+
   release:
     name: release (tarballs + SHA256SUMS + provenance)
     if: startsWith(github.ref, 'refs/tags/v')

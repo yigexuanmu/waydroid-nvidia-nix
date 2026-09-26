@@ -50,6 +50,14 @@ set of defects that actually affect day-to-day use:
 `/run/waydroid-venus/` is no longer used, so a hand-created directory with that
 name can be deleted.
 
+**One fixed locally (not from an upstream PR)**: P010 (10-bit HDR) had the same
+bug in its CPU-fallback biplanar sizing that NV12 did — `stride * height * 3 / 2`
+truncates the UV plane for odd heights (a full 4096-byte page short after
+alignment, i.e. an out-of-bounds write). Fixed to the same round-up formula as
+NV12, following minigbm's actual layout rule
+(`drv_size_from_format() = stride * DIV_ROUND_UP(height, vertical_subsampling)`).
+Even heights such as 1080p were unaffected, which is why it never showed up.
+
 ## Prerequisites
 
 - **NVIDIA open kernel modules** (`nvidia-open`/`nvidia-open-dkms`) — Turing

@@ -10,6 +10,7 @@
 #include <GLES2/gl2.h>
 #include <GLES2/gl2ext.h>
 #include <errno.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -83,7 +84,21 @@ static int alloc_buffer(int sock, uint32_t flags, uint32_t *stride,
 }
 
 int main(int argc, char **argv) {
-    const char *path = argc > 1 ? argv[1] : "/run/waydroid-venus/venus.sock";
+    // The venus socket lives in the desktop user's private runtime dir now
+    // (systemd RuntimeDirectory= on wd-venus.service); the old shared
+    // /run/waydroid-venus/venus.sock is retired.
+    char def[PATH_MAX];
+    const char *path;
+    if (argc > 1) {
+        path = argv[1];
+    } else if (const char *x = getenv("XDG_RUNTIME_DIR")) {
+        snprintf(def, sizeof def, "%s/waydroid-venus/venus.sock", x);
+        path = def;
+    } else {
+        fprintf(stderr, "no socket path given and $XDG_RUNTIME_DIR is unset; "
+                        "pass the path explicitly (nvalloc /path/to/venus.sock)\n");
+        return 1;
+    }
     int sock = socket(AF_UNIX, SOCK_STREAM, 0);
     struct sockaddr_un addr = {.sun_family = AF_UNIX};
     strncpy(addr.sun_path, path, sizeof(addr.sun_path) - 1);
