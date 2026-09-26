@@ -65,15 +65,48 @@ in
       };
     };
 
-    # post-installation hint
+    # post-installation hint + stale-config guard.
+    #
+    # The venus socket moved to the desktop user's private runtime directory in
+    # 0.1.3, but nvidia_venus_socket in waydroid.cfg is a runtime artifact that
+    # only waydroid-nvidia-setup rewrites. After an upgrade the file can still
+    # point at the retired shared /run/waydroid-venus path, and waydroid then
+    # refuses to start with a misleading "not accepting connections" error.
+    # Check the value itself, not merely whether the file exists.
     systemd.services.waydroid-nvidia-setup-warning = {
       description = "waydroid-nvidia setup reminder";
       before = [ "waydroid-container.service" ];
       wantedBy = [ "waydroid-container.service" ];
       script = ''
-        if [ ! -f /var/lib/waydroid/waydroid.cfg ]; then
-          echo "waydroid-nvidia: run 'waydroid init' then 'sudo waydroid-nvidia-setup${lib.optionalString (cfg.refreshRate != null) " --refresh ${toString cfg.refreshRate}"}'"
+        CFG=/var/lib/waydroid/waydroid.cfg
+        SETUP="sudo waydroid-nvidia-setup${lib.optionalString (cfg.refreshRate != null) " --refresh ${toString cfg.refreshRate}"}"
+
+        if [ ! -f "$CFG" ]; then
+          echo "waydroid-nvidia: run 'waydroid init' then '$SETUP'"
+          exit 0
         fi
+
+        SOCKET=$(grep -E '^[[:space:]]*nvidia_venus_socket[[:space:]]*=' "$CFG" \
+                  | tail -1 | cut -d= -f2- | tr -d '[:space:]')
+
+        if [ -z "$SOCKET" ]; then
+          echo "waydroid-nvidia: $CFG has no nvidia_venus_socket; run '$SETUP'"
+          exit 0
+        fi
+
+        case "$SOCKET" in
+          /run/user/*/waydroid-venus/venus.sock)
+            UID_NUM=$(printf '%s' "$SOCKET" | sed 's|^/run/user/||; s|/.*||')
+            if [ ! -d "/run/user/$UID_NUM" ]; then
+              echo "waydroid-nvidia: nvidia_venus_socket points at vanished session /run/user/$UID_NUM"
+              echo "waydroid-nvidia: log in as that desktop user, or re-run '$SETUP'"
+            fi
+            ;;
+          *)
+            echo "waydroid-nvidia: STALE nvidia_venus_socket='$SOCKET'"
+            echo "waydroid-nvidia: the venus socket is now per-user; re-run '$SETUP'"
+            ;;
+        esac
       '';
       serviceConfig = {
         Type = "oneshot";
