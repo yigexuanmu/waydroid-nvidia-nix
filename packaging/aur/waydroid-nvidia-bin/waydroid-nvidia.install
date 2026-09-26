@@ -2,12 +2,17 @@ post_install() {
     cat <<'EOF'
 waydroid-nvidia: next steps
   1. waydroid init                      (download an image, as usual)
-  2. waydroid-nvidia-setup              (as root; add --refresh <hz> to match
-                                         your monitor, e.g. --refresh 144)
+  2. waydroid-nvidia-setup              (via sudo, from your desktop session;
+     add --refresh <hz> to match your
+     monitor, e.g. --refresh 144)
   3. systemctl enable --now waydroid-container.service
   4. systemctl --user enable --now wd-venus.service   (as your desktop user)
   5. re-login once (udev uaccess rule for /dev/udmabuf), then
      waydroid session start / launch Waydroid from the app menu
+
+Step 2 must be run with sudo from your desktop user's own session, not from
+an SSH or root shell: the Venus socket lives under that user's
+$XDG_RUNTIME_DIR, so setup needs $SUDO_USER to find it.
 
 Requires the NVIDIA open kernel modules (nvidia-open / nvidia-open-dkms)
 with nvidia-drm.modeset=1. The closed kernel module (nvidia / nvidia-dkms)

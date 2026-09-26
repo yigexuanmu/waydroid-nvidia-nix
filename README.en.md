@@ -10,11 +10,15 @@ fork with the full upstream source vendored into this repo.**
 This repository is a self-contained fork of
 [Shiro836/waydroid-nvidia](https://github.com/Shiro836/waydroid-nvidia)
 (the `Neo` branch): upstream source, patches and build scripts are all vendored
-in-repo, plus PR
-[#4](https://github.com/Shiro836/waydroid-nvidia/pull/4)
-is merged (new XBGR2101010 / NV12 / P010 gralloc formats and an ETC2 hardware
-feature probe). It is exposed as a Nix flake with 5 packages, an overlay and a
-NixOS module, and every component builds directly from the in-repo source.
+in-repo, plus three upstream PRs are merged —
+[#4](https://github.com/Shiro836/waydroid-nvidia/pull/4) (new XBGR2101010 / NV12 /
+P010 gralloc formats and an ETC2 hardware feature probe),
+[#12](https://github.com/Shiro836/waydroid-nvidia/pull/12) (LINEAR-memory
+screenshot banding fix) and
+[#20](https://github.com/Shiro836/waydroid-nvidia/pull/20)
+(hwcomposer crash fix, Scudo data-race fix, Venus socket hardening, setup
+robustness, and more). It is exposed as a Nix flake with 5 packages, an overlay
+and a NixOS module, and every component builds directly from the in-repo source.
 
 ```
 Android app ── Vulkan ──▶ guest Mesa Venus ── unix socket ──▶ host renderer
@@ -25,6 +29,26 @@ KWin ◀── hwcomposer ◀── gralloc imports ◀── NVIDIA dmabufs ◀
 Buffers are allocated host-side as NVIDIA block-linear images and reach the
 compositor as native NVIDIA dmabufs. GL runs through ANGLE, ASTC textures are
 emulated in a compute shader, and frame sync is fully GPU-side.
+
+## Fixes over upstream
+
+Beyond PR #4's format additions, this branch merges #12 and #20, which cover a
+set of defects that actually affect day-to-day use:
+
+| Symptom | Upstream PR | Root cause and fix |
+|---------|-------------|--------------------|
+| Horizontal banding in screenshots / screen recordings | [#12](https://github.com/Shiro836/waydroid-nvidia/pull/12) | CPU-mappable buffers previously landed in kernel udmabuf LINEAR memory, where NVIDIA renders corruptly. It now prefers LINEAR memory allocated by vtest itself (falling back to udmabuf for unrenderable formats) and the linear memory property is corrected from `HOST_CACHED` to `HOST_COHERENT` |
+| Crashes when opening certain apps | [#20](https://github.com/Shiro836/waydroid-nvidia/pull/20) | hwcomposer now refuses to import `DRM_FORMAT_MOD_LINEAR` dmabufs it did not allocate itself (issue #11) |
+| Sporadic Scudo crashes | [#20](https://github.com/Shiro836/waydroid-nvidia/pull/20) | Data race on the hwcomposer format list under concurrent read/write; guarded with `formats_mutex` |
+| SystemUI crash loop | [#20](https://github.com/Shiro836/waydroid-nvidia/pull/20) | `waydroid-nvidia-setup` now clears the per-app `code_cache` each run (issue #13) |
+| Garbled video | [#20](https://github.com/Shiro836/waydroid-nvidia/pull/20) | NV12 now uses a real biplanar layout (issue #16), with the uv-plane size rounded up so odd heights no longer under-allocate |
+| Venus socket reachable by every local user | [#20](https://github.com/Shiro836/waydroid-nvidia/pull/20) | The socket moves out of the shared, root-owned, 1777 `/run/waydroid-venus` into the desktop user's private `$XDG_RUNTIME_DIR/waydroid-venus` |
+
+**Socket location changed (read before upgrading)**: the Venus socket now lives at
+`$XDG_RUNTIME_DIR/waydroid-venus/venus.sock`, created on every login by
+`RuntimeDirectory=waydroid-venus` in `wd-venus.service`. The old
+`/run/waydroid-venus/` is no longer used, so a hand-created directory with that
+name can be deleted.
 
 ## Prerequisites
 
@@ -84,6 +108,11 @@ systemctl --user enable --now wd-venus.service
 nohup waydroid session start &>/dev/null &
 ```
 
+`waydroid-nvidia-setup` must be run via `sudo` **from the desktop user's own
+session** (not a root login shell, and not over SSH): it needs that user's
+`$XDG_RUNTIME_DIR` in order to locate the Venus socket. If the environment is
+missing it exits with an error rather than guessing a path.
+
 ### 5. Verify GPU acceleration
 
 ```sh
@@ -129,11 +158,11 @@ echo "getprop ro.product.cpu.abilist" | sudo waydroid shell
 
 | `nix build .#<attr>` | Description |
 |----------------------|-------------|
-| `virglrenderer-nvidia` | Host Venus render server (built from source with NVIDIA patches + PR#4 formats) |
+| `virglrenderer-nvidia` | Host Venus render server (built from source with NVIDIA patches, PR#4 formats, and the #12/#20 LINEAR / NV12 fixes) |
 | `waydroid-nvidia` | Patched Waydroid Python tools (built from source) |
 | `guest-nvidia` | Guest Vulkan driver `libvulkan_virtio.so` + gralloc `libgbm_mesa_wrapper.so` (CI prebuilt) |
 | `guest-prebuilts-nvidia` | Guest hwcomposer + ANGLE + surfaceflinger (CI prebuilt) |
-| `waydroid-nvidia-full` | All of the above + systemd units + udev rules + tmpfiles + setup script |
+| `waydroid-nvidia-full` | All of the above + systemd units + udev rules + setup script (the Venus socket directory is created automatically by `RuntimeDirectory=`, no tmpfiles unit needed) |
 | `default` | Same as `waydroid-nvidia-full` |
 
 Also usable via `overlays.default` or by referencing `packages.x86_64-linux.<attr>` directly.
@@ -180,6 +209,18 @@ See [`docs/troubleshooting.md`](docs/troubleshooting.md) for details.
 ```sh
 nix build .#waydroid-nvidia-full
 ```
+
+Check the packaged result (no system-wide deploy needed):
+
+```sh
+P=$(nix eval --impure --raw .#packages.x86_64-linux.waydroid-nvidia-full)
+grep -E 'RuntimeDirectory=|socket-path' $P/share/systemd/user/wd-venus.service
+```
+
+You should see `RuntimeDirectory=waydroid-venus` and
+`--socket-path %t/waydroid-venus/venus.sock`. The two must agree, and must
+point at the same location as the `nvidia_venus_socket` value that
+`waydroid-nvidia-setup` writes into `waydroid.cfg`.
 
 Test the module locally (without deploying system-wide):
 

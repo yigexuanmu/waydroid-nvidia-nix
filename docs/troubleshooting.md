@@ -4,8 +4,16 @@ Most field failures so far have been environment/config issues that
 `waydroid-nvidia-setup` now detects or auto-fixes — **re-running
 `sudo waydroid-nvidia-setup` is the first move for almost everything.**
 It refuses loudly (with the fix in the message) on a missing NVIDIA node,
-`nvidia-drm.modeset=0`, or a pre-minigbm vendor image, and it auto-removes
-stale gralloc overrides left in `waydroid.cfg` by old installs.
+`nvidia-drm.modeset=0`, a pre-minigbm vendor image, or a missing
+`$SUDO_USER`, and it auto-removes stale gralloc overrides left in
+`waydroid.cfg` by old installs. It also clears the per-app `code_cache` on
+every run (upstream PR #20), which is the fix for SystemUI crash loops.
+
+The Venus socket lives at `$XDG_RUNTIME_DIR/waydroid-venus/venus.sock` (created
+by `RuntimeDirectory=waydroid-venus` in `wd-venus.service`). The shared
+`/run/waydroid-venus/venus.sock` used by older releases is retired — if a
+session start fails on the socket and wd-venus is running, your `waydroid.cfg`
+probably still points at the old path.
 
 ## Quick health check
 
@@ -35,6 +43,9 @@ none), then attach it to an issue.
 | Symptom | Cause | Fix |
 |---|---|---|
 | `waydroid session start` refuses: "Venus render server socket … not accepting connections" | wd-venus isn't running in *your* user session | `systemctl --user enable --now wd-venus.service` (no sudo — sudo targets root's user manager) |
+| Same "not accepting connections", but wd-venus *is* running | Stale install: `waydroid.cfg` still points at the retired shared socket path `/run/waydroid-venus/venus.sock` | Re-run `sudo waydroid-nvidia-setup` — it rewrites `nvidia_venus_socket` to your `$XDG_RUNTIME_DIR/waydroid-venus/venus.sock` |
+| Setup refuses: "run this with sudo from your desktop user's own session" | `$SUDO_USER` is empty — setup was launched from an SSH session or a root login shell instead of under `sudo` from the desktop | Run it in a terminal inside your desktop session: `sudo waydroid-nvidia-setup` |
+| Setup refuses: "/run/user/<uid> does not exist" | The user named by `$SUDO_USER` has no active user manager (no graphical session logged in) | Log in to your desktop session and re-run setup there |
 | SurfaceFlinger crash-loops with `Unable to generate SkSurface`, guest uses `allocator@2.0` / "Using fallback gralloc implementation" | Stale gralloc override in `waydroid.cfg` (e.g. the old software-rendering workaround `ro.hardware.gralloc=default`), or a pre-minigbm vendor image | Re-run `sudo waydroid-nvidia-setup` — it removes the override / refuses the old image and tells you |
 | Setup refuses: vendor image too old | Migrated install carrying an ancient `vendor.img`; **`waydroid init -f` does NOT re-download the vendor** (it trusts a stored timestamp even if the file is deleted) | `sudo sed -i 's/^vendor_datetime.*/vendor_datetime = 0/' /var/lib/waydroid/waydroid.cfg && sudo rm -f /var/lib/waydroid/images/vendor.img && sudo waydroid init -f` — then re-run setup. If you use gapps, `waydroid init -f -s GAPPS` (plain `-f` silently resets the channel to VANILLA) |
 | Setup refuses: `nvidia-drm.modeset` | modeset=0 disables **all** DMA-BUF support in the driver — nothing in this stack can work | Add `nvidia_drm.modeset=1` to kernel params or modprobe.d, reboot |

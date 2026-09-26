@@ -59,7 +59,6 @@ stdenv.mkDerivation {
     # 5. host integration files from upstream
     mkdir -p $out/bin
     mkdir -p $out/lib/systemd/user
-    mkdir -p $out/lib/tmpfiles.d
     mkdir -p $out/lib/udev/rules.d
 
     # Patch waydroid-container.service to use Nix store path
@@ -70,8 +69,13 @@ stdenv.mkDerivation {
       $out/lib/systemd/user/wd-venus.service
     substituteInPlace $out/lib/systemd/user/wd-venus.service \
       --replace-fail '/usr/lib/waydroid-nvidia' "$out/lib/waydroid-nvidia"
-    cp ${./../../packaging/aur/waydroid-nvidia-bin/waydroid-venus.tmpfiles} \
-      $out/lib/tmpfiles.d/waydroid-venus.conf
+    # The Venus socket directory is NOT a tmpfiles.d entry: wd-venus.service
+    # declares RuntimeDirectory=waydroid-venus, so systemd creates it under
+    # $XDG_RUNTIME_DIR at mode 0755 inside the desktop user's 0700 runtime dir.
+    # (Upstream PR #20 removed the shared, root-owned, world-writable
+    # /run/waydroid-venus tmpfiles unit that let any local user reach the
+    # socket. The NixOS module's service definition must carry
+    # RuntimeDirectory=waydroid-venus too -- see modules/nixos/waydroid-nvidia.nix.)
     cp ${./../../packaging/aur/waydroid-nvidia-bin/waydroid-nvidia.rules} \
       $out/lib/udev/rules.d/70-waydroid-nvidia.rules
     cp ${./../../packaging/aur/waydroid-nvidia-bin/waydroid-nvidia-setup} \
@@ -95,7 +99,6 @@ stdenv.mkDerivation {
       $out/bin/waydroid-nvidia-setup \
       $out/bin/waydroid \
       $out/lib/systemd/user/wd-venus.service \
-      $out/lib/tmpfiles.d/waydroid-venus.conf \
       $out/lib/udev/rules.d/70-waydroid-nvidia.rules
     do
       [ -f "$f" ] || { echo "missing: $f" >&2; exit 1; }

@@ -59,15 +59,21 @@ directory. Before running setup, both
 `guest/vendor/lib64/hw/vulkan.virtio.so` (ELF64) must exist; the setup helper
 checks every ANGLE/Venus ELF before changing the Waydroid configuration.
 
-## 4. Units, tmpfiles, udev rule, setup helper
+## 4. Units, udev rule, setup helper
+
+The Venus socket directory is **not** a `tmpfiles.d` entry anymore: `wd-venus.service`
+declares `RuntimeDirectory=waydroid-venus`, so systemd creates
+`$XDG_RUNTIME_DIR/waydroid-venus` on every login, inside the desktop user's own
+0700 runtime directory. (Upstream PR #20 removed the shared, root-owned, 1777
+`/run/waydroid-venus` tmpfiles unit, which let any local user find the socket and
+drive the GPU.) If you installed an older version, delete the stale
+`/etc/tmpfiles.d/waydroid-venus.conf` and `/run/waydroid-venus`.
 
 ```sh
 P=packaging/aur/waydroid-nvidia-bin
-sudo install -Dm644 $P/wd-venus.service        /etc/systemd/user/wd-venus.service
-sudo install -Dm644 $P/waydroid-venus.tmpfiles /etc/tmpfiles.d/waydroid-venus.conf
-sudo install -Dm644 $P/waydroid-nvidia.rules   /etc/udev/rules.d/70-waydroid-nvidia.rules
-sudo install -Dm755 $P/waydroid-nvidia-setup   /usr/local/bin/waydroid-nvidia-setup
-sudo systemd-tmpfiles --create /etc/tmpfiles.d/waydroid-venus.conf
+sudo install -Dm644 $P/wd-venus.service    /etc/systemd/user/wd-venus.service
+sudo install -Dm644 $P/waydroid-nvidia.rules  /etc/udev/rules.d/70-waydroid-nvidia.rules
+sudo install -Dm755 $P/waydroid-nvidia-setup  /usr/local/bin/waydroid-nvidia-setup
 sudo udevadm control --reload && sudo udevadm trigger /dev/udmabuf
 ```
 
@@ -87,5 +93,9 @@ sudo systemctl enable --now waydroid-container.service
 systemctl --user enable --now wd-venus.service
 waydroid session start
 ```
+
+Run setup via `sudo` from the desktop user's own session, not from an SSH or
+root shell — it needs `$SUDO_USER` to locate the socket under
+`$XDG_RUNTIME_DIR`.
 
 If anything misbehaves, see [`troubleshooting.md`](troubleshooting.md).

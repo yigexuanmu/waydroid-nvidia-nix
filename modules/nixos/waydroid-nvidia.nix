@@ -40,16 +40,22 @@ in
     # udev rule for /dev/udmabuf (uaccess for seated user)
     services.udev.packages = [ wnv ];
 
-    # tmpfiles.d for /run/waydroid-venus socket directory
-    systemd.tmpfiles.packages = [ wnv ];
-
     # user service for Venus render server
+    #
+    # RuntimeDirectory=waydroid-venus makes systemd create
+    # $XDG_RUNTIME_DIR/waydroid-venus at mode 0755 *inside the desktop user's
+    # own 0700 runtime directory*. That is deliberate (upstream PR #20): the
+    # previous shared, root-owned 1777 /run/waydroid-venus let any other local
+    # user find the socket and drive the GPU. Keep this in sync with
+    # packaging/aur/.../wd-venus.service and with the nvidia_venus_socket value
+    # that waydroid-nvidia-setup writes into waydroid.cfg.
     systemd.user.services.wd-venus = {
       description = "Venus vtest render server for waydroid-nvidia";
       wantedBy = [ "default.target" ];
       serviceConfig = {
         Type = "simple";
-        ExecStart = "${wnv}/lib/waydroid-nvidia/virgl_test_server --venus --multi-clients --socket-path /run/waydroid-venus/venus.sock";
+        RuntimeDirectory = "waydroid-venus";
+        ExecStart = "${wnv}/lib/waydroid-nvidia/virgl_test_server --venus --multi-clients --socket-path %t/waydroid-venus/venus.sock";
         Environment = [
           "RENDER_SERVER_EXEC_PATH=${wnv}/lib/waydroid-nvidia/virgl_render_server"
           "LD_LIBRARY_PATH=${wnv}/lib/waydroid-nvidia:${pkgs.vulkan-loader}/lib"
