@@ -387,7 +387,12 @@ vtest_gpu_alloc_image(uint32_t width, uint32_t height, uint32_t drm_format,
    uint32_t mem_type = UINT32_MAX;
    const VkMemoryPropertyFlags want =
       linear ? (VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                VK_MEMORY_PROPERTY_HOST_CACHED_BIT)
+                /* COHERENT, not CACHED: these buffers are mmap'ed and
+                 * written by the guest CPU (gralloc mappable use case), so
+                 * hardware coherence is the load-bearing property -- a
+                 * cacheable-only host mapping can present stale bytes to the
+                 * GPU. (upstream PR #12) */
+                VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)
              : VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
    for (uint32_t i = 0; i < vk->mem_props.memoryTypeCount; i++) {
       if ((reqs.memoryTypeBits & (1u << i)) &&
@@ -475,13 +480,41 @@ int
 vtest_gpu_alloc_cpu(uint32_t width, uint32_t height, uint32_t drm_format,
                     uint32_t *out_stride, uint64_t *out_size, int *out_fd)
 {
-   /* CPU-mappable gralloc allocations use /dev/udmabuf over a shrink-sealed memfd. */
+   /* Prefer NVIDIA's own exported LINEAR memory over a kernel-allocated
+    * (udmabuf) LINEAR buffer. NVIDIA renders corruptly into kernel udmabuf
+    * LINEAR memory but cleanly into memory it allocated itself (host probes:
+    * residual -9/dips=141 vs -0.03/dips=0) -- this was the guest screencap
+    * banding behind the original bug. Allocate CPU-mappable buffers as
+    * NVIDIA's own LINEAR memory when the format is renderable, and fall back
+    * to a plain udmabuf otherwise.
+    *
+    * NOTE (upstream PR #12 vs PR #20): PR #20 makes hwcomposer refuse to
+    * attach LINEAR dmabufs it did not allocate itself (issue #11), so the
+    * buffers exported down here no longer reach that import path directly;
+    * the two changes complement rather than conflict. If a regression shows
+    * up in direct-attach usage, drop the alloc_image attempt below and keep
+    * PR #20's hwcomposer-side rejection as the safety net.
+    */
+   uint64_t modifier = 0;
+   if (vtest_gpu_alloc_image(width, height, drm_format, true, out_stride,
+                             &modifier, out_size, out_fd) == 0)
+      return 0;
+
+   /* Fallback: /dev/udmabuf over a shrink-sealed memfd. */
    uint32_t stride = 0;
    uint64_t size = 0;
 
    if (drm_format == VTEST_FORMAT_NV12) {
       stride = (uint32_t)ALLOC_ALIGN((uint64_t)width, 256);
-      size = ALLOC_ALIGN((uint64_t)stride * height * 3 / 2, 4096);
+      /* Biplanar 4:2:0: Y plane followed by an interleaved UV plane at the
+       * same row stride. Round the UV plane up with (height + 1) / 2 rather
+       * than height / 2 -- minigbm's biplanar_yuv_420_layout() rounds up and
+       * recomputes both planes' offsets from this stride alone, so a
+       * truncated UV plane under-allocates for odd heights.
+       * (upstream PR #20, fixes #16) */
+      size = ALLOC_ALIGN((uint64_t)stride * height +
+                             (uint64_t)stride * ((height + 1) / 2),
+                          4096);
    } else if (drm_format == VTEST_FORMAT_P010) {
       stride = (uint32_t)ALLOC_ALIGN((uint64_t)width * 2, 256);
       size = ALLOC_ALIGN((uint64_t)stride * height * 3 / 2, 4096);

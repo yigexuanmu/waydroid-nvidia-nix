@@ -220,7 +220,24 @@ vtest_alloc(struct alloc_args *args)
    struct vtest_dev *dev = (struct vtest_dev *)args->gbm;
 
    uint32_t flags = 0;
-   if (args->force_linear || args->needs_map_stride)
+   /* NV12 is always linear/mappable here, matching gbm_mesa's own driver
+    * table (gbm_mesa_driver_init() pins DRM_FORMAT_NV12 to
+    * DRM_FORMAT_MOD_LINEAR for every use flag, including
+    * BO_USE_HW_VIDEO_DECODER, which carries neither SW flag and would
+    * otherwise take the tiled GPU-image path). That matters beyond just
+    * matching policy: minigbm's drv_bo_from_format() computes the Y/UV
+    * plane offsets by arithmetic on ONE stride, which is only correct for a
+    * linear buffer -- a tiled NVIDIA modifier's real chroma-plane offset
+    * comes from the driver's block layout and will not match, which would
+    * silently hand back the wrong bytes as chroma instead of failing
+    * loudly. Staying linear keeps the plane math correct.
+    * (upstream PR #20, fixes #16)
+    *
+    * NV12 is already whitelisted by vtest_is_supported_drm_format(), so
+    * vtest_get_gbm_format() needs no per-format case for it -- the
+    * equivalent upstream hunk is unnecessary here. */
+   if (args->force_linear || args->needs_map_stride ||
+       args->drm_format == VTEST_FORMAT_NV12)
       flags |= VCMD_ALLOC_GPU_FLAG_MAPPABLE;
    if (args->use_scanout)
       flags |= VCMD_ALLOC_GPU_FLAG_SCANOUT;
