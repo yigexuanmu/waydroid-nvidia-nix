@@ -100,9 +100,16 @@ sudo nixos-rebuild switch --flake .#myhost
 ```sh
 sudo waydroid init                     # 下载 Android 镜像
 sudo waydroid-nvidia-setup --refresh 144   # --refresh 匹配显示器刷新率
-systemctl --user enable --now wd-venus.service
 nohup waydroid session start &>/dev/null &
 ```
+
+NixOS 上**不要**执行 `systemctl --user enable wd-venus.service`：模块已声明
+`wantedBy = [ "default.target" ]`，登录时随用户管理器自动启动。手动 enable 会在
+`~/.config/systemd/user/` 下写入指向 `/nix/store` 的链接，而该目录在 systemd 的
+单元搜索顺序里**优先于** `/etc/systemd/user`；重建或 GC 之后链接悬空，反而遮蔽
+模块安装的单元，症状是 `Unit wd-venus.service does not exist`（见
+[troubleshooting](docs/troubleshooting.md)）。模块现在通过 systemd-tmpfiles 接管
+这两个路径，可选 `services.waydroid-nvidia.desktopUsers` 限定用户。
 
 `waydroid-nvidia-setup` 必须通过 `sudo` 从**桌面用户自己的会话**运行（不是 root 登录 shell，
 也不是 SSH 会话）：它需要一个桌面用户的 `$XDG_RUNTIME_DIR` 来定位 Venus socket。缺这个

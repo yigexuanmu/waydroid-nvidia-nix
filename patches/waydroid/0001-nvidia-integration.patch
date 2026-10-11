@@ -2,7 +2,7 @@ diff --git a/tools/actions/session_manager.py b/tools/actions/session_manager.py
 index 4e8426c..00ced81 100644
 --- a/tools/actions/session_manager.py
 +++ b/tools/actions/session_manager.py
-@@ -66,6 +66,41 @@ def start(args, unlocked_cb=None, background=True):
+@@ -66,6 +66,42 @@ def start(args, unlocked_cb=None, background=True):
          logging.error(f"Wayland socket '{wayland_socket_path}' doesn't exist; are you running a Wayland compositor?")
          sys.exit(1)
  
@@ -36,7 +36,8 @@ index 4e8426c..00ced81 100644
 +            sock.connect(venus_socket)
 +        except OSError as e:
 +            logging.error(f"Venus render server socket '{venus_socket}' is not accepting connections ({e.strerror}).")
-+            logging.error("Start it as your desktop user: systemctl --user enable --now wd-venus.service")
++            logging.error("Start it as your desktop user: systemctl --user start wd-venus.service")
++            logging.error("(NixOS: never 'enable' it by hand — a stale ~/.config/systemd/user/wd-venus.service link can shadow the unit)")
 +            sys.exit(1)
 +        finally:
 +            sock.close()

@@ -8,6 +8,33 @@
 let
   cfg = config.services.waydroid-nvidia;
   wnv = cfg.package;
+
+  # The unit file this module generates; systemd.user.units.<name>.unit is the
+  # store *directory* that contains it.
+  venusUnitPath = "${config.systemd.user.units."wd-venus.service".unit}/wd-venus.service";
+
+  # Keep each desktop user's own copy of that unit a live link to it. See the
+  # comment on systemd.tmpfiles.rules below for why this is needed.
+  userUnitPins = user:
+    let
+      u = config.users.users.${user};
+      group = if u.group == null then "root" else u.group;
+      base = "${u.home}/.config";
+    in
+    lib.optionals (u.home != null && u.home != "/var/empty") (
+      # mode "-" so an existing directory keeps its own mode while a missing one
+      # is created owned by the user.
+      map (d: "d ${d} - ${user} ${group} -") [
+        base
+        "${base}/systemd"
+        "${base}/systemd/user"
+        "${base}/systemd/user/default.target.wants"
+      ]
+      ++ map (p: "L+ ${p} - - - - ${venusUnitPath}") [
+        "${base}/systemd/user/wd-venus.service"
+        "${base}/systemd/user/default.target.wants/wd-venus.service"
+      ]
+    );
 in
 {
   options.services.waydroid-nvidia = {
@@ -19,6 +46,24 @@ in
       type = lib.types.nullOr lib.types.ints.positive;
       default = null;
       description = "Monitor refresh rate in Hz (e.g. 144, 240, 500)";
+    };
+
+    desktopUsers = lib.mkOption {
+      type = lib.types.listOf lib.types.str;
+      default =
+        lib.mapAttrsToList (n: _: n)
+          (lib.filterAttrs (_: u:
+            u.isNormalUser && u.home != null && u.home != "/var/empty")
+            config.users.users);
+      defaultText =
+        lib.literalExpression "every user with isNormalUser = true and a real home directory";
+      description = ''
+        Users whose ~/.config/systemd/user/wd-venus.service (and its
+        default.target.wants link) is pinned to the unit this module generates.
+
+        Leave this at the default unless a user's home directory is not on
+        local storage or must not be touched by systemd-tmpfiles.
+      '';
     };
   };
 
@@ -64,6 +109,30 @@ in
         RestartSec = 1;
       };
     };
+
+    # Pin the user-level unit, and keep it pinned.
+    #
+    # systemd resolves a per-user unit from, in this order:
+    # ~/.config/systemd/user, /etc/systemd/user, $XDG_DATA_DIRS/systemd/user.
+    # A file in the first directory therefore *shadows* the one this module
+    # installs in /etc/systemd/user.
+    #
+    # The documented one-liner `systemctl --user enable --now wd-venus.service`
+    # (README, install-manual, waydroid-nvidia-setup, and the error message of
+    # the waydroid patch) materialises exactly such a file: a permanent symlink
+    # in ~/.config/systemd/user pointing at the unit's /nix/store path. That path
+    # is generation-scoped, so the next rebuild that changes the unit — or a
+    # garbage collection — leaves a dangling link, which shadows the still valid
+    # /etc unit. systemd then reports wd-venus.service as "bad" or missing
+    # ("Unit wd-venus.service does not exist"), the Venus socket is never
+    # created, and waydroid fails its socket preflight.
+    #
+    # Declaring the two paths here makes the module own them: systemd-tmpfiles
+    # rewrites them from the current system closure on every boot, so they cannot
+    # go stale, and the closure keeps the target alive across GC. Enabling the
+    # unit by hand is unnecessary anyway — wantedBy = [ "default.target" ] above
+    # already starts it with the user manager.
+    systemd.tmpfiles.rules = lib.concatMap userUnitPins cfg.desktopUsers;
 
     # post-installation hint + stale-config guard.
     #

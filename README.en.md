@@ -112,9 +112,19 @@ sudo nixos-rebuild switch --flake .#myhost
 ```sh
 sudo waydroid init                     # download an Android image
 sudo waydroid-nvidia-setup --refresh 144   # --refresh to match your monitor
-systemctl --user enable --now wd-venus.service
 nohup waydroid session start &>/dev/null &
 ```
+
+On NixOS, do **not** run `systemctl --user enable wd-venus.service`: the module
+already declares `wantedBy = [ "default.target" ]`, so the user manager starts it
+at login. Enabling it by hand writes links into `~/.config/systemd/user/` that
+point at `/nix/store` paths, and that directory **outranks** `/etc/systemd/user`
+in systemd's unit search order; after a rebuild or a GC the link dangles and
+shadows the unit the module installed, which surfaces as
+`Unit wd-venus.service does not exist` (see
+[troubleshooting](docs/troubleshooting.md)). The module now owns those two paths
+through systemd-tmpfiles, with `services.waydroid-nvidia.desktopUsers` to limit
+which users it touches.
 
 `waydroid-nvidia-setup` must be run via `sudo` **from the desktop user's own
 session** (not a root login shell, and not over SSH): it needs that user's

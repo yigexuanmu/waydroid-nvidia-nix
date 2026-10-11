@@ -265,8 +265,12 @@ cat <<'EOF'
 
 Done. To start the stack:
   systemctl enable --now waydroid-container.service         (as root)
-  systemctl --user enable --now wd-venus.service            (as your desktop user)
+  systemctl --user start wd-venus.service                   (as your desktop user)
   waydroid session start                                    (or launch from the app menu)
+
+On NixOS the wd-venus unit comes from services.waydroid-nvidia, which already
+starts it at login; do not 'enable' it there, or the ~/.config/systemd/user
+link you create will shadow the unit after a rebuild.
 
 The Venus render server (wd-venus) must be running before the session starts.
 Verify GPU acceleration inside the guest: the SurfaceFlinger GLES line in
