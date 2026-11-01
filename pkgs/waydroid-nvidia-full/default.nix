@@ -167,6 +167,35 @@ stdenv.mkDerivation {
     subst '/usr/lib/waydroid' "$out/lib/waydroid"
     subst '/usr/bin/python3' "$wd_python"
 
+    # 7b. the container unit drop-in. Every activation path (waydroid-nvidia-setup via
+    # vendor_image.py, `driver-mode apply`, `source-native activate`) writes
+    # /etc/systemd/system/waydroid-container.service.d/source-native.conf, which NixOS keeps
+    # read-only ([Errno 30] Read-only file system): the install aborted there and rolled back.
+    # Two halves:
+    #   - the scripts keep their bookkeeping (write, backup, restore) in a writable mirror under
+    #     /var/lib; the text is mode-independent, so the mirror never diverges;
+    #   - the module installs the real drop-in from the file generated below, which is upstream's
+    #     own render_override() run on the packaged tree (PYTHON and REPO come from the store), so
+    #     a change upstream makes to the drop-in reaches NixOS without us re-stating it in Nix.
+    subst '/etc/systemd/system/waydroid-container.service.d' \
+      '/var/lib/waydroid-nvidia/systemd/waydroid-container.service.d'
+    dropin=$out/share/waydroid-nvidia/systemd/waydroid-container.service.d/source-native.conf
+    mkdir -p "$(dirname "$dropin")"
+    "$wd_python" - "$out/lib/waydroid-nvidia/native/dev/source-native" > "$dropin" <<'PY'
+import importlib.machinery, importlib.util, sys
+
+loader = importlib.machinery.SourceFileLoader('source_native', sys.argv[1])
+spec = importlib.util.spec_from_loader('source_native', loader)
+module = importlib.util.module_from_spec(spec)
+loader.exec_module(module)
+assert module.PACKAGED, 'expected the packaged branch of dev/source-native'
+sys.stdout.write(module.render_override(None))
+PY
+    grep -qx "Wants=sys-subsystem-waydroid_nvidia-render.device" "$dropin" \
+      || { echo "unexpected drop-in: $dropin" >&2; cat "$dropin" >&2; exit 1; }
+    grep -qx "ExecStartPre=$wd_python $out/lib/waydroid-nvidia/native/dev/driver-mode verify-active" \
+      "$dropin" || { echo "unexpected drop-in: $dropin" >&2; cat "$dropin" >&2; exit 1; }
+
     # 8. the setup must find the tools it shells out to, and the waydroid CLI of this package,
     # without relying on the caller's PATH after sudo. Inserted right after the real
     # `set -euo pipefail`, which is where `--help` stops printing, so upstream's help is intact.
@@ -197,6 +226,7 @@ $path_line
       $out/lib/waydroid-nvidia/native/packaging/native/vendor_image.py \
       $out/bin/waydroid-nvidia-setup \
       $out/bin/waydroid \
+      $out/share/waydroid-nvidia/systemd/waydroid-container.service.d/source-native.conf \
       $out/lib/systemd/user/wd-venus.service \
       $out/lib/tmpfiles.d/waydroid-venus.conf \
       $out/lib/udev/rules.d/70-waydroid-nvidia.rules \
@@ -214,9 +244,10 @@ $path_line
       [ -f "$f" ] || { echo "missing vendor zip in $out/lib/waydroid-nvidia/vendor" >&2; exit 1; }
     done
 
-    # no hardcoded distro prefix may survive outside the hash-checked bundle
-    if grep -rIl --exclude-dir=release -e '/usr/lib/waydroid' -e '/usr/bin/python3' $out; then
-      echo "files above still hardcode /usr/lib/waydroid* or /usr/bin/python3" >&2; exit 1;
+    # no hardcoded distro prefix may survive outside the hash-checked bundle (/var/lib is ours: see 7b)
+    if grep -rIl --exclude-dir=release -e '/usr/lib/waydroid' -e '/usr/bin/python3' \
+      -e '/etc/systemd/system/waydroid-container.service.d' $out; then
+      echo "files above still hardcode /usr/lib/waydroid*, /usr/bin/python3 or the /etc drop-in" >&2; exit 1;
     fi
 
     # the packaged install must carry exactly its own generator (dev/source-native compares the two

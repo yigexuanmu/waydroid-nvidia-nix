@@ -96,6 +96,15 @@ in
     # systemd device unit the container unit waits for at boot
     services.udev.packages = [ wnv ];
 
+    # Upstream's installers write this drop-in into /etc/systemd/system at activation time (it makes
+    # the container wait for the render-node device unit and run `driver-mode verify-active` before
+    # ExecStart). /etc is read-only on NixOS, so the package generates the exact same text from its
+    # own copy of upstream's render_override() and the module installs it. The scripts' own writes
+    # (and their backups) go to /var/lib/waydroid-nvidia/systemd, see
+    # pkgs/waydroid-nvidia-full/default.nix step 7b.
+    environment.etc."systemd/system/waydroid-container.service.d/source-native.conf".source =
+      "${wnv}/share/waydroid-nvidia/systemd/waydroid-container.service.d/source-native.conf";
+
     # tmpfiles.d for /run/waydroid-venus socket directory
     systemd.tmpfiles.packages = [ wnv ];
 

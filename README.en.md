@@ -305,6 +305,20 @@ forwards its Vulkan calls over a socket:
 `nvidia-prolapse` and `glibc-shim` do not need `wd-venus`; the module leaves it off for
 `mode = "nvidia-prolapse"` and on for `mode = null` / `"venus"`.
 
+### What the packaging layer does
+
+Upstream assumes a mutable `/etc` and a distro python, as on Arch. Both are rewritten at build time;
+the runtime logic stays upstream's:
+
+| Upstream | Here |
+| --- | --- |
+| Hardcoded `/usr/lib/waydroid-nvidia`, `/usr/lib/waydroid`, `/usr/lib/udev` | `substituteInPlace` to store paths at build time |
+| `/usr/bin/python3` runs `waydroid.py` (the container unit's `ExecStartPre`, `waydroid upgrade -o`) | rewritten to the interpreter in `waydroid.py`'s shebang (the only one with dbus/gi/gbinder), asserted at build time with `import` |
+| The installer writes `/etc/systemd/system/waydroid-container.service.d/` | the package generates the same file at build time with upstream's own `render_override()`, and the module installs it into `/etc` (read-only on NixOS); the scripts' own writes and backups go to `/var/lib/waydroid-nvidia/systemd/` |
+| pacman hook / alpm upgrade hook | not used; the module's systemd / udev / tmpfiles integration replaces it |
+| The native bundle re-checks its hashes against `BUILD-RECORD.json` at runtime | strip and patchELF are off, and `postFixup` re-checks all 68 + 38 files |
+| virglrenderer / Mesa / ANGLE built from source | kept for `virglrenderer` only; everything else comes from the upstream release |
+
 ## Known issues
 
 - On some setups the mouse cursor is invisible inside Android (upstream
