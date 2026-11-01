@@ -313,8 +313,8 @@ the runtime logic stays upstream's:
 | Upstream | Here |
 | --- | --- |
 | Hardcoded `/usr/lib/waydroid-nvidia`, `/usr/lib/waydroid`, `/usr/lib/udev` | `substituteInPlace` to store paths at build time |
-| `/usr/bin/python3` runs `waydroid.py` (the container unit's `ExecStartPre`, `waydroid upgrade -o`) | rewritten to the interpreter in `waydroid.py`'s shebang (the only one with dbus/gi/gbinder), asserted at build time with `import` |
-| The installer writes `/etc/systemd/system/waydroid-container.service.d/` | the package generates the same file at build time with upstream's own `render_override()`, and the module installs it into `/etc` (read-only on NixOS); the scripts' own writes and backups go to `/var/lib/waydroid-nvidia/systemd/` |
+| `/usr/bin/python3` runs `waydroid.py` (the container unit's `ExecStartPre`, `waydroid upgrade -o`) | rewritten to the interpreter in `waydroid.py`'s shebang (the only one with dbus/gi/gbinder), asserted at build time with `import`; the `#!/usr/bin/env python3` shebangs of the executable scripts under `dev/` point at it too (NixOS has no `/usr/bin/env`) |
+| The installer writes `/etc/systemd/system/waydroid-container.service.d/` | that path is a symlink to `system-units` on NixOS and cannot be written; `Wants=` / `After=` / `ExecStartPre=` are set on the unit in the module, with a build-time assertion on upstream's `render_override()` (anything added there fails the build), and the scripts' own writes and backups go to `/var/lib/waydroid-nvidia/systemd/` |
 | pacman hook / alpm upgrade hook | not used; the module's systemd / udev / tmpfiles integration replaces it |
 | The native bundle re-checks its hashes against `BUILD-RECORD.json` at runtime | strip and patchELF are off, and `postFixup` re-checks all 68 + 38 files |
 | virglrenderer / Mesa / ANGLE built from source | kept for `virglrenderer` only; everything else comes from the upstream release |

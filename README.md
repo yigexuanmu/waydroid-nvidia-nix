@@ -304,8 +304,8 @@ waydroid session start
 | 上游做法 | 这里 |
 | --- | --- |
 | 硬编码 `/usr/lib/waydroid-nvidia`、`/usr/lib/waydroid`、`/usr/lib/udev` | 构建期 `substituteInPlace` 指向 store 路径 |
-| 用 `/usr/bin/python3` 跑 `waydroid.py`（容器 unit 的 `ExecStartPre`、`waydroid upgrade -o`） | 改写成 `waydroid.py` shebang 里的那个 python 环境（唯一带 dbus/gi/gbinder 的），并在构建期 `import` 断言 |
-| 安装时写 `/etc/systemd/system/waydroid-container.service.d/` | 构建期用上游自己的 `render_override()` 生成同一份文件，由模块装进 `/etc`（NixOS 的 `/etc` 只读）；脚本自己的写入与备份落在 `/var/lib/waydroid-nvidia/systemd/` |
+| 用 `/usr/bin/python3` 跑 `waydroid.py`（容器 unit 的 `ExecStartPre`、`waydroid upgrade -o`） | 改写成 `waydroid.py` shebang 里的那个 python 环境（唯一带 dbus/gi/gbinder 的），并在构建期 `import` 断言；`dev/` 下可执行脚本的 `#!/usr/bin/env python3` 也一起指向它（NixOS 没有 `/usr/bin/env`） |
+| 安装时写 `/etc/systemd/system/waydroid-container.service.d/` | NixOS 里这个路径是指向 `system-units` 的符号链接，写不了；`Wants=` / `After=` / `ExecStartPre=` 三项在模块里直接写在 unit 上，并用构建期断言盯住上游的 `render_override()`（它一多出东西就红），脚本自己的写入与备份落在 `/var/lib/waydroid-nvidia/systemd/` |
 | pacman hook / alpm 升级钩子 | 不用；改用模块的 systemd / udev / tmpfiles 集成 |
 | native bundle 运行时按 `BUILD-RECORD.json` 校验哈希 | 关掉 strip 与 patchELF，`postFixup` 里重新校验 68 + 38 个文件 |
 | 从源码构建 virglrenderer / Mesa / ANGLE | 只保留 `virglrenderer`；其余取上游发布产物 |

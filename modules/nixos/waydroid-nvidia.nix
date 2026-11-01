@@ -80,10 +80,20 @@ in
     # Waydroid needs binder; the nixpkgs waydroid module asks for the same module.
     boot.kernelModules = [ "binder_linux" ];
 
-    # waydroid-container.service (patched to use Nix paths, system unit only)
+    # Upstream's activation steps write the container drop-in into
+    # /etc/systemd/system/waydroid-container.service.d/, but NixOS owns that path (a symlink to the
+    # system-units store path), so the three settings below restate it on the unit itself: the
+    # container starts after the NVIDIA render node's device unit (named by
+    # 70-waydroid-nvidia-gpu.rules) instead of racing the modules' init, and its ExecStartPre fails
+    # with the reason and the remedy (nvidia_native.ensure_gpu_ready) when /dev/nvidia* is not ready.
+    # Wants=, not Requires=. The package fails its build if upstream's render_override() grows
+    # anything else, see pkgs/waydroid-nvidia-full/default.nix step 7b.
     systemd.services.waydroid-container = {
       description = "Waydroid Container";
       wantedBy = [ "multi-user.target" ];
+      wants = [ "sys-subsystem-waydroid_nvidia-render.device" ];
+      after = [ "sys-subsystem-waydroid_nvidia-render.device" ];
+      preStart = "${wnv}/lib/waydroid-nvidia/native/dev/driver-mode verify-active";
       serviceConfig = {
         UMask = "0022";
         BusName = "id.waydro.Container";
@@ -95,15 +105,6 @@ in
     # udev rules: /dev/udmabuf uaccess for the seated user and the NVIDIA render node as the
     # systemd device unit the container unit waits for at boot
     services.udev.packages = [ wnv ];
-
-    # Upstream's installers write this drop-in into /etc/systemd/system at activation time (it makes
-    # the container wait for the render-node device unit and run `driver-mode verify-active` before
-    # ExecStart). /etc is read-only on NixOS, so the package generates the exact same text from its
-    # own copy of upstream's render_override() and the module installs it. The scripts' own writes
-    # (and their backups) go to /var/lib/waydroid-nvidia/systemd, see
-    # pkgs/waydroid-nvidia-full/default.nix step 7b.
-    environment.etc."systemd/system/waydroid-container.service.d/source-native.conf".source =
-      "${wnv}/share/waydroid-nvidia/systemd/waydroid-container.service.d/source-native.conf";
 
     # tmpfiles.d for /run/waydroid-venus socket directory
     systemd.tmpfiles.packages = [ wnv ];

@@ -169,14 +169,12 @@ stdenv.mkDerivation {
 
     # 7b. the container unit drop-in. Every activation path (waydroid-nvidia-setup via
     # vendor_image.py, `driver-mode apply`, `source-native activate`) writes
-    # /etc/systemd/system/waydroid-container.service.d/source-native.conf, which NixOS keeps
-    # read-only ([Errno 30] Read-only file system): the install aborted there and rolled back.
-    # Two halves:
+    # /etc/systemd/system/waydroid-container.service.d/source-native.conf. NixOS owns that path: it
+    # is a symlink to the system-units store path, so a drop-in cannot be installed there. Two halves:
+    #   - the module expresses the same settings on the unit itself (wants/after/preStart), see
+    #     modules/nixos/waydroid-nvidia.nix;
     #   - the scripts keep their bookkeeping (write, backup, restore) in a writable mirror under
-    #     /var/lib; the text is mode-independent, so the mirror never diverges;
-    #   - the module installs the real drop-in from the file generated below, which is upstream's
-    #     own render_override() run on the packaged tree (PYTHON and REPO come from the store), so
-    #     a change upstream makes to the drop-in reaches NixOS without us re-stating it in Nix.
+    #     /var/lib; the text is mode-independent, so the mirror cannot diverge.
     subst '/etc/systemd/system/waydroid-container.service.d' \
       '/var/lib/waydroid-nvidia/systemd/waydroid-container.service.d'
     dropin=$out/share/waydroid-nvidia/systemd/waydroid-container.service.d/source-native.conf
@@ -191,10 +189,32 @@ loader.exec_module(module)
 assert module.PACKAGED, 'expected the packaged branch of dev/source-native'
 sys.stdout.write(module.render_override(None))
 PY
-    grep -qx "Wants=sys-subsystem-waydroid_nvidia-render.device" "$dropin" \
-      || { echo "unexpected drop-in: $dropin" >&2; cat "$dropin" >&2; exit 1; }
-    grep -qx "ExecStartPre=$wd_python $out/lib/waydroid-nvidia/native/dev/driver-mode verify-active" \
-      "$dropin" || { echo "unexpected drop-in: $dropin" >&2; cat "$dropin" >&2; exit 1; }
+    # The generated text is a tripwire: the module restates it in Nix (the unit is written by the
+    # systemd module, not by a drop-in file). Anything upstream adds to it (MountFlags, another
+    # ExecStartPre, a Requires=) fails this build instead of being silently missed at runtime.
+    expected=$(printf '%s\n' \
+      '[Unit]' \
+      'Wants=sys-subsystem-waydroid_nvidia-render.device' \
+      'After=sys-subsystem-waydroid_nvidia-render.device' \
+      "" \
+      '[Service]' \
+      'ExecStartPre=' \
+      "ExecStartPre=$wd_python $out/lib/waydroid-nvidia/native/dev/driver-mode verify-active")
+    if [ "$(cat "$dropin")" != "$expected" ]; then
+      echo "upstream's render_override() changed: mirror it in modules/nixos/waydroid-nvidia.nix" >&2
+      diff <(echo "$expected") "$dropin" >&2 || true
+      exit 1
+    fi
+
+    # dev/source-native and dev/driver-mode are run directly (the unit's ExecStartPre runs
+    # driver-mode), and /usr/bin/env does not exist on NixOS: give them the Waydroid runtime too.
+    for f in $out/lib/waydroid-nvidia/native/dev/source-native \
+             $out/lib/waydroid-nvidia/native/dev/driver-mode; do
+      if [ "$(head -1 "$f")" = '#!/usr/bin/env python3' ]; then
+        sed -i "1s|.*|#!$wd_python|" "$f"
+      fi
+      [ "$(head -1 "$f")" = "#!$wd_python" ] || { echo "unpatched shebang: $f" >&2; exit 1; }
+    done
 
     # 8. the setup must find the tools it shells out to, and the waydroid CLI of this package,
     # without relying on the caller's PATH after sudo. Inserted right after the real
