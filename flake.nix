@@ -5,7 +5,7 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
     wnv-src = {
-      url = "github:Shiro836/waydroid-nvidia/v0.1.2";
+      url = "github:Shiro836/waydroid-nvidia/v0.2.0";
       flake = false;
     };
   };
@@ -35,6 +35,11 @@
 
           guest-prebuilts-nvidia = callPackage ./pkgs/guest-prebuilts-nvidia { };
 
+          # release assets of the nvidia-prolapse (default) driver mode
+          native-bundle-nvidia = callPackage ./pkgs/native-bundle-nvidia { };
+
+          vendor-image-nvidia = callPackage ./pkgs/vendor-image-nvidia { };
+
           waydroid-nvidia-full = callPackage ./pkgs/waydroid-nvidia-full {
             inherit
               wnv-src
@@ -42,6 +47,8 @@
               waydroid-nvidia
               guest-nvidia
               guest-prebuilts-nvidia
+              native-bundle-nvidia
+              vendor-image-nvidia
               ;
           };
 
@@ -53,12 +60,16 @@
         waydroid-nvidia = final.callPackage ./pkgs/waydroid-nvidia { inherit wnv-src; };
         guest-nvidia = final.callPackage ./pkgs/guest-nvidia { };
         guest-prebuilts-nvidia = final.callPackage ./pkgs/guest-prebuilts-nvidia { };
+        native-bundle-nvidia = final.callPackage ./pkgs/native-bundle-nvidia { };
+        vendor-image-nvidia = final.callPackage ./pkgs/vendor-image-nvidia { };
         waydroid-nvidia-full = final.callPackage ./pkgs/waydroid-nvidia-full {
           inherit wnv-src;
           virglrenderer-nvidia = final.virglrenderer-nvidia;
           waydroid-nvidia = final.waydroid-nvidia;
           guest-nvidia = final.guest-nvidia;
           guest-prebuilts-nvidia = final.guest-prebuilts-nvidia;
+          native-bundle-nvidia = final.native-bundle-nvidia;
+          vendor-image-nvidia = final.vendor-image-nvidia;
         };
       };
 

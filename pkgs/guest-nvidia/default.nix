@@ -6,12 +6,12 @@
 }:
 
 let
-  version = "0.1.2";
+  version = "0.2.0";
 
   tarball = fetchurl {
     name = "waydroid-nvidia-guest-android-x86_64-v${version}.tar.zst";
     url = "https://github.com/Shiro836/waydroid-nvidia/releases/download/v${version}/waydroid-nvidia-guest-android-x86_64-v${version}.tar.zst";
-    hash = "sha256-wKbuemnGvGB19xl9bDzC4hO/GwYbAy8g2m90QfhwRXQ=";
+    hash = "sha256-e1enSUC7Hl2xBWoBVNKHXztJjrarZFZl9vbpCGn5Brc=";
   };
 in
 stdenv.mkDerivation {

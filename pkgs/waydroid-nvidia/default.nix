@@ -13,7 +13,7 @@
 
 let
   pname = "waydroid-nvidia";
-  version = "0.1.1";
+  version = "0.2.0";
 
   # Pinned upstream commit from packaging/ci/pins.env
   waydroid-src = builtins.fetchGit {
@@ -33,7 +33,17 @@ stdenv.mkDerivation {
 
   src = waydroid-src;
 
-  patches = [ "${wnv-src}/patches/waydroid/0001-nvidia-integration.patch" ];
+  # 0001: venus bind-mounts that survive `waydroid upgrade`, suspend_action=none, drm_device
+  # 0002: the nvidia-prolapse/glibc-shim driver modes + tools/helpers/nvidia_native.py
+  patches = [
+    "${wnv-src}/patches/waydroid/0001-nvidia-integration.patch"
+    "${wnv-src}/waydroid/0001-lxc-nvidia-native-mounts.patch"
+  ];
+
+  # the patch must install the very file the bundled native tools are built from
+  postPatch = ''
+    cmp ${wnv-src}/waydroid/nvidia_native.py tools/helpers/nvidia_native.py
+  '';
 
   nativeBuildInputs = [ python ];
 

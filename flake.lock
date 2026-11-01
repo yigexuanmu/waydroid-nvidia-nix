@@ -25,16 +25,16 @@
     "wnv-src": {
       "flake": false,
       "locked": {
-        "lastModified": 1784896711,
-        "narHash": "sha256-D1qG0+t9+6bdIEGZw6LaiIsU3yzASwY/VF0U2PM1Pcw=",
+        "lastModified": 1793197103,
+        "narHash": "sha256-4crDAMPDrF5UD3IjbGx6F7Gl/Mgb0jT3gqOuxSi3g1s=",
         "owner": "Shiro836",
         "repo": "waydroid-nvidia",
-        "rev": "4239f9055d9ecee765cf6890227cf4d1d9f7b13e",
+        "rev": "15838e131d3f48f3038ec9f3fd7c4975541c9d81",
         "type": "github"
       },
       "original": {
         "owner": "Shiro836",
-        "ref": "v0.1.2",
+        "ref": "v0.2.0",
         "repo": "waydroid-nvidia",
         "type": "github"
       }
