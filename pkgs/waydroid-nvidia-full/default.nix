@@ -151,11 +151,21 @@ stdenv.mkDerivation {
         fi
       done
     }
+    # upstream's /usr/bin/python3 is the distro python, which carries Waydroid's own runtime.
+    # `${python3}` would not: tools/source-native's waydroid_argv() runs
+    # `[PYTHON, $out/lib/waydroid/waydroid.py]` (that is how `waydroid upgrade -o` and
+    # `driver-mode verify-active` are invoked), and waydroid.py imports dbus/gi/gbinder, which only
+    # the waydroid package's python env provides. That env is exactly waydroid.py's shebang, so read
+    # it back instead of hardcoding it, and fail the build if it is not a working Waydroid runtime.
+    wd_python=$(sed -n '1s/^#!//p' $out/lib/waydroid/waydroid.py)
+    "$wd_python" -I -c 'import dbus.mainloop.glib, gi, gbinder' \
+      || { echo "waydroid.py's interpreter ($wd_python) cannot import dbus/gi/gbinder" >&2; exit 1; }
+
     # longest first: -nvidia paths must not be rewritten by the plain waydroid rule
     subst '/usr/lib/waydroid-nvidia' "$out/lib/waydroid-nvidia"
     subst '/usr/lib/udev/rules.d' "$out/lib/udev/rules.d"
     subst '/usr/lib/waydroid' "$out/lib/waydroid"
-    subst '/usr/bin/python3' "${python3}/bin/python3"
+    subst '/usr/bin/python3' "$wd_python"
 
     # 8. the setup must find the tools it shells out to, and the waydroid CLI of this package,
     # without relying on the caller's PATH after sudo. Inserted right after the real
