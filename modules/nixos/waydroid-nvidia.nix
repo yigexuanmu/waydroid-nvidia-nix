@@ -80,6 +80,18 @@ in
     # Waydroid needs binder; the nixpkgs waydroid module asks for the same module.
     boot.kernelModules = [ "binder_linux" ];
 
+    # LXC itself, as the nixpkgs waydroid module has it: `lxc-info`, `lxc-attach`, … must be on PATH
+    # for the CLI (`sudo waydroid shell` refuses with "Couldn't get LXC status. Assuming STOPPED"
+    # otherwise) and for the reads of the container state; the container unit gets its own PATH from
+    # runtimePath below.
+    virtualisation.lxc.enable = true;
+
+    # Android reaches the host's network through waydroid0.
+    networking.firewall.trustedInterfaces = [ "waydroid0" ];
+
+    # dnsmasq writes its leases here; the nixpkgs waydroid module asks for the same directory.
+    systemd.tmpfiles.rules = [ "d /var/lib/misc 0755 root root -" ];
+
     # Upstream's activation steps write the container drop-in into
     # /etc/systemd/system/waydroid-container.service.d/, but NixOS owns that path (a symlink to the
     # system-units store path), so the three settings below restate it on the unit itself: the
