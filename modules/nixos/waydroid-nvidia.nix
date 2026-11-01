@@ -93,6 +93,13 @@ in
       wantedBy = [ "multi-user.target" ];
       wants = [ "sys-subsystem-waydroid_nvidia-render.device" ];
       after = [ "sys-subsystem-waydroid_nvidia-render.device" ];
+      # The unit's PATH is this list plus the system profile, so it has to carry what the
+      # ExecStartPre and the container's own helpers look up: debugfs (e2fsprogs) for
+      # verify-active's comparison of the staged /odm with the vendor image, plus
+      # lxc/iptables/dnsmasq/iproute2 for the container itself. config.system.path is what the unit
+      # used to inherit (the default systemd environment), kept so nothing that is merely on the
+      # system keeps failing here.
+      path = wnv.runtimePath ++ [ config.system.path ];
       preStart = "${wnv}/lib/waydroid-nvidia/native/dev/driver-mode verify-active";
       serviceConfig = {
         UMask = "0022";

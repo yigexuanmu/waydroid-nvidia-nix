@@ -30,11 +30,13 @@ let
   version = "0.2.0";
   tag = "v${version}";
 
-  # everything waydroid-nvidia-setup, dev/driver-mode and wd-native shell out to, plus the
-  # patched waydroid CLI itself (the setup runs `waydroid init` / `waydroid upgrade -o`).
-  # systemctl and udevadm deliberately stay on the host's own systemd.
-  setupPath = lib.makeBinPath [
-    python3
+  # Everything the runtime looks up on PATH, minus python3: every entry point already has an
+  # absolute interpreter (waydroid.py's shebang), and a bare `python3` on PATH is the one without
+  # dbus/gi/gbinder, which is how the container's ExecStartPre once broke.
+  # Exposed as passthru.runtimePath so the NixOS module can give the container unit the same
+  # environment: its ExecStartPre runs `driver-mode verify-active`, which needs debugfs
+  # (e2fsprogs) to compare the staged /odm with the vendor image.
+  runtimePath = [
     binutils # readelf: the guest ABI/SONAME gate
     e2fsprogs # debugfs: reads the bionic runtime out of system.img
     util-linux # unshare: the 32-bit gate cases run in their own PID namespace
@@ -50,6 +52,11 @@ let
     gawk
     findutils
   ];
+
+  # everything waydroid-nvidia-setup, dev/driver-mode and wd-native shell out to, plus the
+  # patched waydroid CLI itself (the setup runs `waydroid init` / `waydroid upgrade -o`).
+  # systemctl and udevadm deliberately stay on the host's own systemd.
+  setupPath = lib.makeBinPath ([ python3 ] ++ runtimePath);
 in
 stdenv.mkDerivation {
   pname = "waydroid-nvidia-full";
@@ -284,6 +291,10 @@ $path_line
   postFixup = ''
     python3 -I ${./verify-bundle.py} $out/lib/waydroid-nvidia ${tag}
   '';
+
+  # `driver-mode verify-active` runs as the container unit's ExecStartPre, where PATH is the unit's
+  # own, not the shell the setup was run from: give it the same tools instead of hoping.
+  passthru = { inherit runtimePath; };
 
   meta = {
     description = "Complete waydroid-nvidia stack: patched waydroid + host/guest GPU drivers + the nvidia-prolapse vendor image";
